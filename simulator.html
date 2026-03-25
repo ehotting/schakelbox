@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schakelbox Simulator</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+
+.container { max-width: 1400px; margin: 0 auto; padding: 10px; }
+h1 { text-align: center; font-size: 1.3em; padding: 8px; color: #aaa; }
+
+/* Main panel */
+.panel {
+  background: #c8c8d0;
+  border: 3px solid #888;
+  border-radius: 8px;
+  padding: 15px;
+  position: relative;
+  color: #222;
+}
+
+/* Grid layout matching the physical schakelbox */
+.station-grid {
+  display: grid;
+  grid-template-columns: 50px 1fr 80px 1fr 1fr 80px 1fr 50px;
+  grid-template-rows: auto auto 1fr auto auto;
+  gap: 4px;
+  min-height: 500px;
+}
+
+/* Rail labels */
+.rail-label {
+  writing-mode: vertical-lr;
+  text-orientation: mixed;
+  font-size: 0.7em;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 4px;
+}
+.rail-50kv { background: #e44; color: white; }
+.rail-10kv { background: #44e; color: white; }
+
+/* Top/bottom rail bars */
+.rail-bar {
+  height: 6px;
+  border-radius: 3px;
+  margin: 2px 0;
+}
+.rail-c { background: #c33; }
+.rail-d { background: #933; }
+.rail-1 { background: #33c; }
+.rail-2 { background: #339; }
+.rail-bar.powered { box-shadow: 0 0 8px 2px rgba(255,255,0,0.6); }
+
+/* Veld boxes */
+.veld {
+  background: #b0b0c0;
+  border: 2px solid #888;
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 120px;
+}
+.veld-label {
+  font-weight: bold;
+  font-size: 0.8em;
+  color: #333;
+}
+
+/* Trafo velden (larger, with blue center) */
+.veld-trafo {
+  background: #a0a0b8;
+  min-height: 200px;
+  position: relative;
+}
+.trafo-icon {
+  width: 50px; height: 50px;
+  background: #4466aa;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.6em; color: white; font-weight: bold;
+  margin: 4px 0;
+}
+
+/* Koppelveld */
+.veld-koppel {
+  background: #a8a8b8;
+  justify-content: center;
+}
+
+/* Switches */
+.switch-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+.switch-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.switch-label {
+  font-size: 0.6em;
+  color: #555;
+  white-space: nowrap;
+}
+
+/* Toggle switch styling */
+.toggle {
+  width: 36px; height: 20px;
+  background: #666;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: 1px solid #444;
+}
+.toggle.on {
+  background: #4a4;
+}
+.toggle .knob {
+  width: 16px; height: 16px;
+  background: #ddd;
+  border-radius: 50%;
+  position: absolute;
+  top: 1px; left: 1px;
+  transition: left 0.2s;
+  border: 1px solid #999;
+}
+.toggle.on .knob {
+  left: 17px;
+}
+.toggle:hover { opacity: 0.85; }
+
+/* VS switch (larger, different color) */
+.toggle.vs {
+  width: 42px; height: 24px;
+  border-radius: 12px;
+}
+.toggle.vs .knob {
+  width: 20px; height: 20px;
+  top: 1px; left: 1px;
+}
+.toggle.vs.on .knob {
+  left: 19px;
+}
+.toggle.vs.on {
+  background: #c44;
+}
+
+/* LEDs - realistic dome effect */
+.led {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1px solid #333;
+  transition: all 0.15s;
+  position: relative;
+}
+.led::before {
+  content: '';
+  position: absolute;
+  width: 5px; height: 5px;
+  background: radial-gradient(circle, rgba(255,255,255,0.5), transparent);
+  border-radius: 50%;
+  top: 2px; left: 3px;
+}
+.led.off {
+  background: radial-gradient(circle at 35% 35%, #444, #1a1a1a);
+  box-shadow: inset -1px -1px 3px rgba(0,0,0,0.8);
+}
+.led.off::before { opacity: 0.15; }
+
+.led.red {
+  background: radial-gradient(circle at 35% 35%, #ff5555, #cc0000);
+  box-shadow:
+    0 0 6px 1px rgba(255,0,0,0.9),
+    0 0 15px 3px rgba(255,0,0,0.5),
+    0 0 30px 6px rgba(255,0,0,0.2),
+    inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+.led.red-dim {
+  background: radial-gradient(circle at 35% 35%, #662222, #330000);
+  box-shadow: inset -1px -1px 3px rgba(0,0,0,0.6);
+}
+.led.red-dim::before { opacity: 0.1; }
+
+.led.yellow {
+  background: radial-gradient(circle at 35% 35%, #ffff55, #ccaa00);
+  box-shadow:
+    0 0 6px 1px rgba(255,255,0,0.9),
+    0 0 15px 3px rgba(255,255,0,0.5),
+    0 0 30px 6px rgba(255,255,0,0.15),
+    inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+.led.yellow-dim {
+  background: radial-gradient(circle at 35% 35%, #554400, #332200);
+  box-shadow: inset -1px -1px 3px rgba(0,0,0,0.6);
+}
+.led.yellow-dim::before { opacity: 0.1; }
+
+.led.green {
+  background: radial-gradient(circle at 35% 35%, #55ff55, #00aa00);
+  box-shadow:
+    0 0 6px 1px rgba(0,255,0,0.9),
+    0 0 15px 3px rgba(0,255,0,0.5),
+    0 0 30px 6px rgba(0,255,0,0.15),
+    inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+
+/* Buzzer indicator - prominent */
+.buzzer-indicator {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 18px;
+  background: #1a1a1a;
+  border: 2px solid #444;
+  border-radius: 8px;
+  font-size: 1em;
+  font-weight: bold;
+}
+.buzzer-indicator .led {
+  width: 24px; height: 24px;
+}
+.buzzer-indicator .led::before {
+  width: 7px; height: 7px;
+  top: 3px; left: 5px;
+}
+.buzzer-indicator .led.red {
+  box-shadow:
+    0 0 8px 2px rgba(255,0,0,0.9),
+    0 0 20px 5px rgba(255,0,0,0.6),
+    0 0 40px 10px rgba(255,0,0,0.3),
+    inset -2px -2px 4px rgba(0,0,0,0.3);
+}
+
+/* Storing buttons */
+.btn-storing {
+  padding: 4px 8px;
+  border: 2px solid #666;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.7em;
+  font-weight: bold;
+  transition: all 0.2s;
+  background: #888;
+  color: #222;
+}
+.btn-storing.active {
+  background: #c44;
+  color: white;
+  border-color: #f66;
+}
+
+/* Sense connections */
+.sense-panel {
+  background: #222;
+  border-radius: 6px;
+  padding: 10px;
+  margin-top: 8px;
+  color: #ccc;
+}
+.sense-panel h3 { font-size: 0.85em; margin-bottom: 6px; color: #aaa; }
+.sense-grid {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.sense-conn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.7em;
+  padding: 3px 6px;
+  background: #333;
+  border-radius: 3px;
+  cursor: pointer;
+  border: 1px solid #555;
+  transition: all 0.2s;
+}
+.sense-conn.connected {
+  background: #243;
+  border-color: #4a4;
+}
+
+/* Serial monitor */
+.serial-monitor {
+  background: #111;
+  color: #0f0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.72em;
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 8px;
+  height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.3;
+}
+
+/* Layout helpers */
+.top-section, .bottom-section {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+.middle-section {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.col-50kv, .col-10kv {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.trafo-column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+}
+
+.rail-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.rail-row .rail-bar { flex: 1; }
+
+.controls-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+
+/* Simplified layout */
+.station-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.velden-row {
+  display: flex;
+  gap: 6px;
+}
+.velden-row > * { flex: 1; }
+
+.koppel-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 90px;
+  max-width: 100px;
+}
+
+.vs-label { font-size: 0.65em; color: #c33; font-weight: bold; }
+.rs-label { font-size: 0.65em; color: #448; font-weight: bold; }
+
+.component-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.separator {
+  width: 100%;
+  height: 1px;
+  background: #999;
+  margin: 2px 0;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Schakelbox Simulator - Schakelinstallatie</h1>
+
+<div class="panel">
+  <!-- 50kV Rails -->
+  <div style="display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+    <span style="font-size:0.7em; font-weight:bold; width:70px;">50kV Rail C</span>
+    <div id="railC-bar" class="rail-bar rail-c" style="flex:1;"></div>
+  </div>
+  <div style="display:flex; align-items:center; gap:4px; margin-bottom:8px;">
+    <span style="font-size:0.7em; font-weight:bold; width:70px;">50kV Rail D</span>
+    <div id="railD-bar" class="rail-bar rail-d powered" style="flex:1;"></div>
+  </div>
+
+  <!-- 50kV Velden + Koppelveld 1 -->
+  <div class="velden-row">
+    <div class="veld veld-trafo" id="veld51">
+      <div class="veld-label">Veld 51</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="rs-label">RS-L</span><div class="toggle" data-switch="rsA0" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="rs-label">RS-R</span><div class="toggle" data-switch="rsB0" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="switch-group"><span class="vs-label">VS PRIM</span><div class="toggle vs" data-switch="vsPrim0" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      <div class="trafo-icon">T1<br>50/10</div>
+      <div class="switch-group"><span class="vs-label">VS SEC</span><div class="toggle vs" data-switch="vsSec0" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      <div class="component-row">
+        <div class="switch-group"><span class="rs-label">RS-L</span><div class="toggle" data-switch="rsC0" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="rs-label">RS-R</span><div class="toggle" data-switch="rsD0" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">LED 51</span><div id="led-prim-0" class="led off"></div></div>
+        <div class="switch-group"><span class="switch-label">LED 11</span><div id="led-sec-0" class="led off"></div></div>
+      </div>
+      <div class="veld-label" style="color:#666;">Veld 11</div>
+    </div>
+
+    <div class="veld" id="veld52" style="justify-content: center;">
+      <div class="veld-label">Veld 52</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">Rail C</span><div id="led-railC-52" class="led off"></div></div>
+        <div class="switch-group"><span class="switch-label">Rail D</span><div id="led-railD-52" class="led off"></div></div>
+      </div>
+    </div>
+
+    <div class="veld veld-trafo" id="veld53">
+      <div class="veld-label">Veld 53</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="rs-label">RS-L</span><div class="toggle" data-switch="rsA1" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="rs-label">RS-R</span><div class="toggle" data-switch="rsB1" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="switch-group"><span class="vs-label">VS PRIM</span><div class="toggle vs" data-switch="vsPrim1" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      <div class="trafo-icon">T2<br>50/10</div>
+      <div class="switch-group"><span class="vs-label">VS SEC</span><div class="toggle vs" data-switch="vsSec1" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      <div class="component-row">
+        <div class="switch-group"><span class="rs-label">RS-L</span><div class="toggle" data-switch="rsC1" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="rs-label">RS-R</span><div class="toggle" data-switch="rsD1" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">LED 53</span><div id="led-prim-1" class="led off"></div></div>
+        <div class="switch-group"><span class="switch-label">LED 12</span><div id="led-sec-1" class="led off"></div></div>
+      </div>
+      <div class="veld-label" style="color:#666;">Veld 12</div>
+    </div>
+
+    <div class="veld" id="veld-13" style="justify-content: center;">
+      <div class="veld-label">Veld 13</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">Rail 1</span><div id="led-rail1-13" class="led off"></div></div>
+        <div class="switch-group"><span class="switch-label">Rail 2</span><div id="led-rail2-13" class="led off"></div></div>
+      </div>
+      <span style="font-size:0.6em; color:#666;">Duinpad</span>
+    </div>
+
+    <div class="veld veld-trafo" id="veld54">
+      <div class="veld-label">Veld 54</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="rs-label">RS-L</span><div class="toggle" data-switch="rsA2" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="rs-label">RS-R</span><div class="toggle" data-switch="rsB2" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="switch-group"><span class="vs-label">VS PRIM</span><div class="toggle vs" data-switch="vsPrim2" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      <div class="trafo-icon">T3<br>50/10</div>
+      <div class="switch-group"><span class="vs-label">VS SEC</span><div class="toggle vs" data-switch="vsSec2" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      <div class="component-row">
+        <div class="switch-group"><span class="rs-label">RS-L</span><div class="toggle" data-switch="rsC2" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="rs-label">RS-R</span><div class="toggle" data-switch="rsD2" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">LED 54</span><div id="led-prim-2" class="led off"></div></div>
+        <div class="switch-group"><span class="switch-label">LED 14</span><div id="led-sec-2" class="led off"></div></div>
+      </div>
+      <div class="veld-label" style="color:#666;">Veld 14</div>
+    </div>
+
+    <div class="veld" id="veld-15" style="justify-content: center;">
+      <div class="veld-label">Veld 15</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">Rail 1</span><div id="led-rail1-15" class="led off"></div></div>
+        <div class="switch-group"><span class="switch-label">Rail 2</span><div id="led-rail2-15" class="led off"></div></div>
+      </div>
+      <span style="font-size:0.6em; color:#666;">Fre de Rik weg</span>
+    </div>
+
+    <div class="koppel-col">
+      <div class="veld veld-koppel">
+        <div class="veld-label">V55</div>
+        <span style="font-size:0.6em;">Koppel 1</span>
+        <div class="switch-group"><div class="toggle vs" data-switch="koppelPrim" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+      <div class="veld veld-koppel">
+        <div class="veld-label">V16</div>
+        <span style="font-size:0.6em;">Koppel 2</span>
+        <div class="switch-group"><div class="toggle vs" data-switch="koppelSec" onclick="toggleSwitch(this)"><div class="knob"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 10kV Rails -->
+  <div style="display:flex; align-items:center; gap:4px; margin-top:8px;">
+    <span style="font-size:0.7em; font-weight:bold; width:70px;">10kV Rail 1</span>
+    <div id="rail1-bar" class="rail-bar rail-1" style="flex:1;"></div>
+  </div>
+  <div style="display:flex; align-items:center; gap:4px; margin-top:2px;">
+    <span style="font-size:0.7em; font-weight:bold; width:70px;">10kV Rail 2</span>
+    <div id="rail2-bar" class="rail-bar rail-2" style="flex:1;"></div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="controls-bar" style="margin-top:10px;">
+  <div style="display:flex; gap:10px; align-items:center;">
+    <button class="btn-storing" id="btn-storing1" onclick="toggleStoring(0)">Storing Trafo 1</button>
+    <button class="btn-storing" id="btn-storing2" onclick="toggleStoring(1)">Storing Trafo 2</button>
+  </div>
+  <div class="buzzer-indicator" style="margin-left:auto;">
+    <div id="buzzer-led" class="led off"></div>
+    <span id="buzzer-text" style="min-width:30px;">UIT</span>
+    <span style="font-size:0.7em; color:#888;">BUZZER</span>
+    <span id="audio-hint" style="font-size:0.6em; color:#666; font-weight:normal;">(klik ergens voor geluid)</span>
+  </div>
+</div>
+
+<!-- Sense connections (storing simulation) -->
+<div style="display:flex; gap:8px; margin-top:8px;">
+  <div class="sense-panel" style="flex:1;">
+    <h3>Storing 1 - Verbindingen (7x sense)</h3>
+    <div class="sense-grid" id="sense-grid"></div>
+  </div>
+  <div class="sense-panel" style="flex:1;">
+    <h3>Storing 2 - Verbindingen (1x pair)</h3>
+    <div class="sense-grid" id="pair-grid"></div>
+  </div>
+</div>
+
+<!-- Serial monitor -->
+<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+  <span style="font-size:0.8em; color:#888;">Serial Monitor (9600 baud)</span>
+  <button onclick="document.getElementById('serial').textContent=''" style="font-size:0.7em; padding:2px 8px; cursor:pointer;">Clear</button>
+</div>
+<div class="serial-monitor" id="serial"></div>
+
+</div>
+
+<script>
+// ===== STATE =====
+const state = {
+  // RS per veld (false = UIT/OFF, true = IN/ON)
+  rsA: [false, false, false],
+  rsB: [false, false, false],
+  rsC: [false, false, false],
+  rsD: [false, false, false],
+  // VS per veld
+  vsPrim: [false, false, false],
+  vsSec: [false, false, false],
+  // Koppelvelden
+  koppelPrim: false,
+  koppelSec: false,
+  // Storingsknoppen
+  btnVeld: [false, false, false],
+  // Sense connections (storing 1: 7 verbindingen)
+  senseOk: [false, false, false, false, false, false, false],
+  // Pair connections (storing 2: 1 paar)
+  pairOk: [false],
+  // Buzzer
+  buzzerUntil: 0,
+  // Previous states for edge detection
+  prev: {
+    rsA: [false, false, false],
+    rsB: [false, false, false],
+    rsC: [false, false, false],
+    rsD: [false, false, false],
+    koppelPrim: false,
+    koppelSec: false,
+    allVsPrimOut: false,
+    allVsSecOut: false,
+    allVsBothOut: false,
+    allRsCDOut: false,
+    allRsABOut: false,
+    rail1Fed: true,
+    rail2Fed: true,
+  },
+  // Blink
+  blinkState: false,
+};
+
+const BUZZER_LATCH_MS = 1200;
+const BLINK_INTERVAL = 500;
+const STATUS_INTERVAL = 3000;
+const BUZZER_FREQ = 440; // Hz, lage buzzer toon
+
+let now = 0;
+let lastBlink = 0;
+let lastStatus = 0;
+
+// ===== BUZZER AUDIO (Web Audio API) =====
+// Realistische buzzer: square wave + distortion + LFO pulsing
+let audioCtx = null;
+let buzzerNodes = null;
+let audioReady = false;
+
+function createDistortionCurve(amount) {
+  const samples = 44100;
+  const curve = new Float32Array(samples);
+  const deg = Math.PI / 180;
+  for (let i = 0; i < samples; i++) {
+    const x = (i * 2) / samples - 1;
+    curve[i] = ((3 + amount) * x * 20 * deg) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+// Initialiseer audio bij eerste user-interactie
+document.addEventListener('click', function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Hoofd-oscillator: square wave (harsh, buzzer-achtig)
+  const osc = audioCtx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.value = BUZZER_FREQ;
+
+  // Distortion voor dat schurende buzzer-karakter
+  const distortion = audioCtx.createWaveShaper();
+  distortion.curve = createDistortionCurve(40);
+
+  // LFO voor pulseren (3Hz = 3x per seconde aan/uit)
+  const lfo = audioCtx.createOscillator();
+  lfo.type = 'square';
+  lfo.frequency.value = 3;
+
+  const lfoGain = audioCtx.createGain();
+  lfoGain.gain.value = 0.04; // modulatiediepte
+
+  // Volume met LFO-modulatie
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.07;
+
+  // Mute-node: aan/uit schakelaar ACHTER de LFO-modulatie
+  const muteGain = audioCtx.createGain();
+  muteGain.gain.value = 0;
+
+  // Routing: osc -> distortion -> masterGain -> muteGain -> speakers
+  //          lfo -> lfoGain -> masterGain.gain (amplitude modulatie)
+  osc.connect(distortion);
+  distortion.connect(masterGain);
+  masterGain.connect(muteGain);
+  muteGain.connect(audioCtx.destination);
+
+  lfo.connect(lfoGain);
+  lfoGain.connect(masterGain.gain);
+
+  osc.start();
+  lfo.start();
+
+  buzzerNodes = { muteGain };
+  audioReady = true;
+  const hint = document.getElementById('audio-hint');
+  if (hint) hint.style.display = 'none';
+}, { once: true });
+
+function setBuzzerAudio(on) {
+  if (!audioReady) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  buzzerNodes.muteGain.gain.setTargetAtTime(on ? 1 : 0, audioCtx.currentTime, 0.005);
+}
+
+// ===== SERIAL OUTPUT =====
+function serialPrint(text) {
+  const el = document.getElementById('serial');
+  el.textContent += text;
+  el.scrollTop = el.scrollHeight;
+}
+function serialPrintln(text) {
+  serialPrint(text + '\n');
+}
+
+// ===== TRIGGER FAULT =====
+function triggerFault(veldNaam, device, reason) {
+  state.buzzerUntil = now + BUZZER_LATCH_MS;
+  serialPrintln(`!!! FOUT  ${now}ms | ${veldNaam} | ${device} | ${reason}`);
+}
+
+// ===== ALLOW FUNCTIONS (exact copy of Arduino logic) =====
+function allow_rsA_on(vsPrimI, rsB, koppelPrim) {
+  const vsUit = !vsPrimI;
+  return (vsUit && !rsB) || (koppelPrim && rsB);
+}
+function allow_rsB_on(vsPrimI, rsA, koppelPrim) {
+  const vsUit = !vsPrimI;
+  return (vsUit && !rsA) || (koppelPrim && rsA);
+}
+function allow_rsA_off(vsPrimI, rsB, koppelPrim) {
+  const vsUit = !vsPrimI;
+  return vsUit || (koppelPrim && rsB);
+}
+function allow_rsB_off(vsPrimI, rsA, koppelPrim) {
+  const vsUit = !vsPrimI;
+  return vsUit || (koppelPrim && rsA);
+}
+function allow_rsC_on(vsSecI, rsD, koppelSec) {
+  const vsUit = !vsSecI;
+  return (vsUit && !rsD) || (koppelSec && rsD);
+}
+function allow_rsD_on(vsSecI, rsC, koppelSec) {
+  const vsUit = !vsSecI;
+  return (vsUit && !rsC) || (koppelSec && rsC);
+}
+function allow_rsC_off(vsSecI, rsD, koppelSec) {
+  const vsUit = !vsSecI;
+  return vsUit || (koppelSec && rsD);
+}
+function allow_rsD_off(vsSecI, rsC, koppelSec) {
+  const vsUit = !vsSecI;
+  return vsUit || (koppelSec && rsC);
+}
+
+// ===== TOGGLE SWITCH =====
+function toggleSwitch(el) {
+  const key = el.dataset.switch;
+  // Parse key like "rsA0" -> state.rsA[0]
+  const match = key.match(/^(rsA|rsB|rsC|rsD|vsPrim|vsSec)(\d)$/);
+  if (match) {
+    const prop = match[1];
+    const idx = parseInt(match[2]);
+    state[prop][idx] = !state[prop][idx];
+    el.classList.toggle('on', state[prop][idx]);
+  } else if (key === 'koppelPrim' || key === 'koppelSec') {
+    state[key] = !state[key];
+    el.classList.toggle('on', state[key]);
+  }
+  // Run logic immediately
+  runLoop();
+}
+
+function toggleStoring(idx) {
+  state.btnVeld[idx] = !state.btnVeld[idx];
+  const btn = document.getElementById(`btn-storing${idx + 1}`);
+  btn.classList.toggle('active', state.btnVeld[idx]);
+  runLoop();
+}
+
+function toggleSense(idx) {
+  state.senseOk[idx] = !state.senseOk[idx];
+  renderSenseGrid();
+  runLoop();
+}
+
+function togglePair(idx) {
+  state.pairOk[idx] = !state.pairOk[idx];
+  renderPairGrid();
+  runLoop();
+}
+
+// ===== INIT SENSE/PAIR GRIDS =====
+function renderSenseGrid() {
+  const grid = document.getElementById('sense-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 7; i++) {
+    const div = document.createElement('div');
+    div.className = 'sense-conn' + (state.senseOk[i] ? ' connected' : '');
+    div.textContent = `S${i + 1}: ${state.senseOk[i] ? 'OK' : 'FOUT'}`;
+    div.onclick = () => toggleSense(i);
+    grid.appendChild(div);
+  }
+}
+
+function renderPairGrid() {
+  const grid = document.getElementById('pair-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 1; i++) {
+    const div = document.createElement('div');
+    div.className = 'sense-conn' + (state.pairOk[i] ? ' connected' : '');
+    div.textContent = `P${i + 1}: ${state.pairOk[i] ? 'OK' : 'FOUT'}`;
+    div.onclick = () => togglePair(i);
+    grid.appendChild(div);
+  }
+}
+
+// ===== VELD NAMES =====
+const veldNamen = ["Veld 51", "Veld 53", "Veld 54"];
+
+// ===== MAIN LOOP (mirrors Arduino loop()) =====
+function runLoop() {
+  now = Date.now();
+
+  // Blink pattern: deterministisch op basis van tijd
+  state.blinkState = (Math.floor(now / BLINK_INTERVAL) % 2) === 0;
+
+  // Compute allSenseOk, allPairsOk
+  const allSenseOk = state.senseOk.every(x => x);
+  const allPairsOk = state.pairOk.every(x => x);
+
+  // ===== STORING-LED LOGICA =====
+  for (let i = 0; i < 3; i++) {
+    let primLed = false;
+    let secLed = false;
+
+    if (state.btnVeld[i]) {
+      let storingOpgelost = false;
+      if (i === 0) storingOpgelost = allSenseOk;
+      else if (i === 1) storingOpgelost = allPairsOk;
+
+      if (storingOpgelost) {
+        primLed = true;
+        secLed = true;
+      } else {
+        primLed = state.blinkState;
+        secLed = state.blinkState;
+      }
+    }
+
+    setLed(`led-prim-${i}`, primLed ? 'yellow' : (state.btnVeld[i] ? 'yellow-dim' : 'off'));
+    setLed(`led-sec-${i}`, secLed ? 'yellow' : (state.btnVeld[i] ? 'yellow-dim' : 'off'));
+  }
+
+  // ===== KOPPELVELD ALARM =====
+  if (state.prev.koppelPrim && !state.koppelPrim) {
+    for (let i = 0; i < 3; i++) {
+      if (state.rsA[i] && state.rsB[i]) {
+        triggerFault(veldNamen[i], "KOPPEL-PRIM", "Koppelveld prim UIT terwijl RS-A en RS-B beide IN staan!");
+      }
+    }
+  }
+  if (state.prev.koppelSec && !state.koppelSec) {
+    for (let i = 0; i < 3; i++) {
+      if (state.rsC[i] && state.rsD[i]) {
+        triggerFault(veldNamen[i], "KOPPEL-SEC", "Koppelveld sec UIT terwijl RS-C en RS-D beide IN staan!");
+      }
+    }
+  }
+
+  // Continue check
+  if (!state.koppelPrim) {
+    for (let i = 0; i < 3; i++) {
+      if (state.rsA[i] && state.rsB[i]) state.buzzerUntil = now + BUZZER_LATCH_MS;
+    }
+  }
+  if (!state.koppelSec) {
+    for (let i = 0; i < 3; i++) {
+      if (state.rsC[i] && state.rsD[i]) state.buzzerUntil = now + BUZZER_LATCH_MS;
+    }
+  }
+
+  state.prev.koppelPrim = state.koppelPrim;
+  state.prev.koppelSec = state.koppelSec;
+
+  // ===== GLOBAL BUZZER RULES =====
+  const allVsPrimOut = state.vsPrim.every(x => !x);
+  const allVsSecOut = state.vsSec.every(x => !x);
+  const allVsBothOut = allVsPrimOut && allVsSecOut;
+  const allRsCDOut = state.rsC.every(x => !x) && state.rsD.every(x => !x);
+  const allRsABOut = state.rsA.every(x => !x) && state.rsB.every(x => !x);
+
+  if (!state.prev.allVsPrimOut && allVsPrimOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_PRIM = UIT(O) -> buzzer AAN");
+  if (!state.prev.allVsSecOut && allVsSecOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_SEC = UIT(O) -> buzzer AAN");
+  if (!state.prev.allVsBothOut && allVsBothOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_PRIM en VS_SEC = UIT(O) -> buzzer AAN");
+  if (!state.prev.allRsCDOut && allRsCDOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE RS_C en RS_D = UIT -> buzzer AAN");
+  if (!state.prev.allRsABOut && allRsABOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE RS_A en RS_B = UIT -> buzzer AAN");
+
+  state.prev.allVsPrimOut = allVsPrimOut;
+  state.prev.allVsSecOut = allVsSecOut;
+  state.prev.allVsBothOut = allVsBothOut;
+  state.prev.allRsCDOut = allRsCDOut;
+  state.prev.allRsABOut = allRsABOut;
+
+  const globalBuzzerCond = allVsSecOut || allVsPrimOut || allRsCDOut || allRsABOut;
+  if (globalBuzzerCond) {
+    state.buzzerUntil = now + BUZZER_LATCH_MS;
+  }
+
+  // ===== POWER FLOW MODEL =====
+  const railCPowered = state.koppelPrim;
+  const railDPowered = true;
+
+  let rail1Fed = false;
+  let rail2Fed = false;
+
+  for (let i = 0; i < 3; i++) {
+    let has50kV = false;
+    if (state.rsA[i] && railCPowered) has50kV = true;
+    if (state.rsB[i] && railDPowered) has50kV = true;
+
+    const canFeed10kV = has50kV && state.vsPrim[i] && state.vsSec[i];
+
+    if (canFeed10kV && state.rsC[i]) rail1Fed = true;
+    if (canFeed10kV && state.rsD[i]) rail2Fed = true;
+  }
+
+  if (state.koppelSec && (rail1Fed || rail2Fed)) {
+    rail1Fed = true;
+    rail2Fed = true;
+  }
+
+  // Rail LED logging
+  if (rail1Fed !== state.prev.rail1Fed) {
+    serialPrintln(`RAIL-1 LED = ${rail1Fed ? 'AAN (spanning)' : 'UIT (geen spanning)'}`);
+    state.prev.rail1Fed = rail1Fed;
+  }
+  if (rail2Fed !== state.prev.rail2Fed) {
+    serialPrintln(`RAIL-2 LED = ${rail2Fed ? 'AAN (spanning)' : 'UIT (geen spanning)'}`);
+    state.prev.rail2Fed = rail2Fed;
+  }
+
+  // ===== RS EDGE DETECT =====
+  for (let i = 0; i < 3; i++) {
+    // RS-A
+    if (!state.prev.rsA[i] && state.rsA[i]) {
+      if (!allow_rsA_on(state.vsPrim[i], state.rsB[i], state.koppelPrim))
+        triggerFault(veldNamen[i], "RS-A", "IN niet toegestaan (schema Inschakelen RS-A).");
+    }
+    if (state.prev.rsA[i] && !state.rsA[i]) {
+      if (!allow_rsA_off(state.vsPrim[i], state.rsB[i], state.koppelPrim))
+        triggerFault(veldNamen[i], "RS-A", "UIT niet toegestaan (schema Uitschakelen RS-A).");
+    }
+    // RS-B
+    if (!state.prev.rsB[i] && state.rsB[i]) {
+      if (!allow_rsB_on(state.vsPrim[i], state.rsA[i], state.koppelPrim))
+        triggerFault(veldNamen[i], "RS-B", "IN niet toegestaan (schema Inschakelen RS-B).");
+    }
+    if (state.prev.rsB[i] && !state.rsB[i]) {
+      if (!allow_rsB_off(state.vsPrim[i], state.rsA[i], state.koppelPrim))
+        triggerFault(veldNamen[i], "RS-B", "UIT niet toegestaan (schema Uitschakelen RS-B).");
+    }
+    // RS-C
+    if (!state.prev.rsC[i] && state.rsC[i]) {
+      if (!allow_rsC_on(state.vsSec[i], state.rsD[i], state.koppelSec))
+        triggerFault(veldNamen[i], "RS-C", "IN niet toegestaan (schema Inschakelen RS-C).");
+    }
+    if (state.prev.rsC[i] && !state.rsC[i]) {
+      if (!allow_rsC_off(state.vsSec[i], state.rsD[i], state.koppelSec))
+        triggerFault(veldNamen[i], "RS-C", "UIT niet toegestaan (schema Uitschakelen RS-C).");
+    }
+    // RS-D
+    if (!state.prev.rsD[i] && state.rsD[i]) {
+      if (!allow_rsD_on(state.vsSec[i], state.rsC[i], state.koppelSec))
+        triggerFault(veldNamen[i], "RS-D", "IN niet toegestaan (schema Inschakelen RS-D).");
+    }
+    if (state.prev.rsD[i] && !state.rsD[i]) {
+      if (!allow_rsD_off(state.vsSec[i], state.rsC[i], state.koppelSec))
+        triggerFault(veldNamen[i], "RS-D", "UIT niet toegestaan (schema Uitschakelen RS-D).");
+    }
+
+    state.prev.rsA[i] = state.rsA[i];
+    state.prev.rsB[i] = state.rsB[i];
+    state.prev.rsC[i] = state.rsC[i];
+    state.prev.rsD[i] = state.rsD[i];
+  }
+
+  // ===== UPDATE UI =====
+  // Buzzer
+  const buzzerOn = (state.buzzerUntil - now) > 0;
+  setLed('buzzer-led', buzzerOn ? 'red' : 'off');
+  document.getElementById('buzzer-text').textContent = buzzerOn ? 'AAN' : 'UIT';
+  setBuzzerAudio(buzzerOn);
+
+  // Rail bars
+  document.getElementById('railC-bar').classList.toggle('powered', railCPowered);
+  document.getElementById('railD-bar').classList.toggle('powered', railDPowered);
+  document.getElementById('rail1-bar').classList.toggle('powered', rail1Fed);
+  document.getElementById('rail2-bar').classList.toggle('powered', rail2Fed);
+
+  // Rail indicator LEDs (Veld 52: 50kV, Veld 13/15: 10kV)
+  setLed('led-railC-52', railCPowered ? 'red' : 'red-dim');
+  setLed('led-railD-52', railDPowered ? 'red' : 'red-dim');
+  setLed('led-rail1-13', rail1Fed ? 'red' : 'red-dim');
+  setLed('led-rail2-13', rail2Fed ? 'red' : 'red-dim');
+  setLed('led-rail1-15', rail1Fed ? 'red' : 'red-dim');
+  setLed('led-rail2-15', rail2Fed ? 'red' : 'red-dim');
+}
+
+function setLed(id, className) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'led ' + className;
+}
+
+// ===== PERIODIC STATUS =====
+function periodicStatus() {
+  const allSenseOk = state.senseOk.every(x => x);
+  const allPairsOk = state.pairOk.every(x => x);
+
+  serialPrintln('='.repeat(80));
+  serialPrintln(`KOPPELVELD PRIMAIR = ${state.koppelPrim ? 'IN' : 'UIT'} | KOPPELVELD SECUNDAIR = ${state.koppelSec ? 'IN' : 'UIT'}`);
+
+  let s1 = `Storing trafo 1 = ${state.btnVeld[0] ? 'AAN' : 'UIT'}`;
+  if (state.btnVeld[0]) s1 += allSenseOk ? ' (opgelost)' : ' (NIET opgelost)';
+  let s2 = `Storing trafo 2 = ${state.btnVeld[1] ? 'AAN' : 'UIT'}`;
+  if (state.btnVeld[1]) s2 += allPairsOk ? ' (opgelost)' : ' (NIET opgelost)';
+  serialPrintln(`${s1} | ${s2}`);
+
+  for (let i = 0; i < 3; i++) {
+    serialPrintln(`${veldNamen[i]} -> RS-A=${state.rsA[i]?'IN':'UIT'} | RS-B=${state.rsB[i]?'IN':'UIT'} | VS-PRIM=${state.vsPrim[i]?'IN(I)':'UIT(O)'} || VS-SEC=${state.vsSec[i]?'IN(I)':'UIT(O)'} | RS-C=${state.rsC[i]?'IN':'UIT'} | RS-D=${state.rsD[i]?'IN':'UIT'}`);
+  }
+  serialPrintln('='.repeat(80));
+}
+
+// ===== INIT =====
+renderSenseGrid();
+renderPairGrid();
+
+// Run the UI update timer (for blink + buzzer latch)
+setInterval(() => {
+  runLoop();
+}, 100);
+
+// Periodic status
+setInterval(periodicStatus, STATUS_INTERVAL);
+
+// Initial run
+runLoop();
+serialPrintln('Start: Schakelbox Simulator V5.0');
+serialPrintln('Klik op schakelaars om ze te bedienen. Klik op sense/pair verbindingen om storingen te simuleren.');
+serialPrintln('='.repeat(80));
+</script>
+
+</body>
+</html>
