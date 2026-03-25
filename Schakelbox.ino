@@ -23,11 +23,18 @@
   - Koppelveld_VS_sec  -> schakelt foutcontrole uit voor ALLE RS C & D
 
   Bugfixes V5.0:
-  1. RS-vrijgave werkt nu per veld (VS prim/sec onafhankelijk)
-  2. Alarm bij koppelveld uit terwijl beide RS in hetzelfde veld aan staan
-  3. Rail-LED logica houdt rekening met koppelvelden (power flow model)
-  4. Storing-LED: knippert bij onopgeloste storing, continu aan bij opgelost
-  5. btnVeld[2] geinitialiseerd (was undefined)
+  1. Alarm bij koppelveld uit terwijl beide RS in hetzelfde veld aan staan
+     (edge-detect + continue buzzer zolang situatie voortduurt)
+  2. Rail-LED logica: power flow model dat de hele keten volgt
+     (50kV rail -> RS A/B -> VS prim -> VS sec -> RS C/D -> 10kV rail)
+     inclusief beide koppelvelden
+  3. Storing-LED: knippert bij onopgeloste storing, continu aan bij opgelost,
+     uit bij inactieve knop. Gebruikt sense/pair checks ipv VS-stand.
+  4. btnVeld[2] geinitialiseerd (was undefined, geen knop voor trafo 3)
+
+  NB: RS-vrijgave (allow_rs* functies) was al correct per veld.
+  Als de global buzzer onterecht afgaat bij testen, check Serial Monitor
+  of het een GLOBAL alarm is (alle VS uit door ontbrekende hardware).
 */
 
 #include <Arduino.h>
