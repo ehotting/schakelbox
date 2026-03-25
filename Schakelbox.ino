@@ -1,4 +1,4 @@
-/* V4.1. last edit: 06/03/2026
+/* V5.0. last edit: 25/03/2026
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
@@ -13,14 +13,21 @@
 
   Arduino Mega 2560
   3 velden (51, 53 en 54):
-    - RS A–D (2-pos, C–NC bekabeld)
-    - VS prim & VS sec (3-pos, C–NC bekabeld)
-    - LED’s per VS → knipperen bij I-stand
-  Eén centrale buzzer (actief HIGH)
-  ─────────────────────────────────────────────
+    - RS A-D (2-pos, C-NC bekabeld)
+    - VS prim & VS sec (3-pos, C-NC bekabeld)
+    - LED's per veld: storing-indicatie (knipperen/aan/uit)
+  Een centrale buzzer (actief HIGH)
+  -----------------------------------------
   Uitbreiding:
-  - Koppelveld_VS_prim → schakelt foutcontrole uit voor ALLE RS A & B (nieuw: C en D)
-  - Koppelveld_VS_sec  → schakelt foutcontrole uit voor ALLE RS C & D (nieuw: 1 en 2)
+  - Koppelveld_VS_prim -> schakelt foutcontrole uit voor ALLE RS A & B
+  - Koppelveld_VS_sec  -> schakelt foutcontrole uit voor ALLE RS C & D
+
+  Bugfixes V5.0:
+  1. RS-vrijgave werkt nu per veld (VS prim/sec onafhankelijk)
+  2. Alarm bij koppelveld uit terwijl beide RS in hetzelfde veld aan staan
+  3. Rail-LED logica houdt rekening met koppelvelden (power flow model)
+  4. Storing-LED: knippert bij onopgeloste storing, continu aan bij opgelost
+  5. btnVeld[2] geinitialiseerd (was undefined)
 */
 
 #include <Arduino.h>
@@ -70,8 +77,8 @@ const uint8_t PAIR_TX_PINS[NUM_PAIRS] = { 42 };
 const uint8_t PAIR_RX_PINS[NUM_PAIRS] = { 43 };
 
 //  NIEUW: 4 LEDS = 2 SETS IN SERIE (2 pins)
-#define LED_SET_C_PIN 50  // set 1 (2 leds in serie)
-#define LED_SET_D_PIN 14  // set 2 (2 leds in serie)
+#define LED_SET_C_PIN 50  // set 1 (2 leds in serie) = Rail 1 indicator
+#define LED_SET_D_PIN 14  // set 2 (2 leds in serie) = Rail 2 indicator
 // Pin HIGH = LED-set AAN
 
 //  TYPES
@@ -163,8 +170,8 @@ Veld velden[3] = {
   { RS3_A, RS3_B, RS3_C, RS3_D, VS3_PRIM, VS3_SEC, LED3_PRIM, LED3_SEC, "Veld 54" }
 };
 
-//  VRIJGAVE-REGELS (schema’s)
-// PRIM (A/B)oud > (C/D)nieuw
+//  VRIJGAVE-REGELS (schema's)
+// PRIM (A/B) - 50kV zijde
 static inline bool allow_rsA_on(bool vsPrimI, RS_State rsB, bool koppelPrim) {
   bool vsUit = !vsPrimI;
   return (vsUit && rsB == RS_OFF) || (koppelPrim && rsB == RS_ON);
@@ -182,7 +189,7 @@ static inline bool allow_rsB_off(bool vsPrimI, RS_State rsA, bool koppelPrim) {
   return (vsUit) || (koppelPrim && rsA == RS_ON);
 }
 
-// SEC (C/D)oud > (1/2)nieuw
+// SEC (C/D) - 10kV zijde
 static inline bool allow_rsC_on(bool vsSecI, RS_State rsD, bool koppelSec) {
   bool vsUit = !vsSecI;
   return (vsUit && rsD == RS_OFF) || (koppelSec && rsD == RS_ON);
@@ -283,7 +290,7 @@ void loop() {
     buzzerUntil = now + BUZZER_LATCH_MS;
   }
 
-  // blink patroon voor VS LEDs
+  // blink patroon voor storing LEDs
   static unsigned long lastBlink = 0;
   static bool blinkState = false;
   if (now - lastBlink >= BLINK_INTERVAL) {
@@ -299,8 +306,76 @@ void loop() {
   bool btnVeld[3];
   btnVeld[0] = (digitalRead(BTN_VELD51_PIN) == LOW);
   btnVeld[1] = (digitalRead(BTN_VELD53_PIN) == LOW);
+  btnVeld[2] = false;  // FIX: geen knop voor trafo 3, was niet geinitialiseerd
 
-  // huidige toestand lezen
+  // ===== VERBINDINGSCHECK (vroegtijdig lezen voor storing-LED logica) =====
+  // 7 sense-ontvangers (storing 1)
+  static bool prevSenseOk[NUM_SENSE] = { false, false, false, false, false, false, false };
+  bool senseOk[NUM_SENSE];
+  bool allSenseOk = true;
+
+  for (uint8_t i = 0; i < NUM_SENSE; i++) {
+    bool ok = (digitalRead(SENSE_PINS[i]) == LOW);
+    senseOk[i] = ok;
+    if (!ok) allSenseOk = false;
+
+    if (ok != prevSenseOk[i]) {
+      if (DEBUG) {
+        Serial.print(F("SENSE "));
+        Serial.print(i + 1);
+        Serial.print(F(" (pin "));
+        Serial.print(SENSE_PINS[i]);
+        Serial.print(F(") = "));
+        Serial.println(ok ? F("AANGESLOTEN") : F("NIET AANGESLOTEN"));
+      }
+      prevSenseOk[i] = ok;
+    }
+  }
+
+  static bool prevAllSenseOk = true;
+  if (allSenseOk != prevAllSenseOk) {
+    if (DEBUG) {
+      if (!allSenseOk) Serial.println(F("!!! VERBINDING FOUT: minstens 1 van de 7 ontvangers is HIGH (geen aansluiting)."));
+      else Serial.println(F("OK: alle 7 ontvangers zijn LOW (aangesloten)."));
+    }
+    prevAllSenseOk = allSenseOk;
+  }
+
+  // pairs check (storing 2)
+  static bool prevPairOk[NUM_PAIRS] = { false };
+  bool pairOk[NUM_PAIRS];
+  bool allPairsOk = true;
+
+  for (uint8_t i = 0; i < NUM_PAIRS; i++) {
+    bool ok = (digitalRead(PAIR_RX_PINS[i]) == LOW);
+    pairOk[i] = ok;
+    if (!ok) allPairsOk = false;
+
+    if (ok != prevPairOk[i]) {
+      if (DEBUG) {
+        Serial.print(F("PAIR "));
+        Serial.print(i + 1);
+        Serial.print(F(" (TX "));
+        Serial.print(PAIR_TX_PINS[i]);
+        Serial.print(F(" -> RX "));
+        Serial.print(PAIR_RX_PINS[i]);
+        Serial.print(F(") = "));
+        Serial.println(ok ? F("OK (ontvangt)") : F("FOUT (geen ontvangst)"));
+      }
+      prevPairOk[i] = ok;
+    }
+  }
+
+  static bool prevAllPairsOk = true;
+  if (allPairsOk != prevAllPairsOk) {
+    if (DEBUG) {
+      if (!allPairsOk) Serial.println(F("!!! PAIR FOUT: minstens 1 pair ontvangt geen signaal (RX HIGH)."));
+      else Serial.println(F("OK: alle pairs ontvangen signaal (RX LOW)."));
+    }
+    prevAllPairsOk = allPairsOk;
+  }
+
+  // ===== HUIDIGE TOESTAND LEZEN =====
   RS_State rsA[3], rsB[3], rsC[3], rsD[3];
   bool vsPrimI[3], vsSecI[3];
 
@@ -312,14 +387,78 @@ void loop() {
     rsD[i] = readRS(v.rsD);
     vsPrimI[i] = VS_is_I(v.vsPrim);
     vsSecI[i] = VS_is_I(v.vsSec);
-
-    // LEDs knipperen alleen als knop van dat veld actief is én VS = IN
-    bool primBlink = (btnVeld[i] && vsPrimI[i] && blinkState);
-    bool secBlink = (btnVeld[i] && vsSecI[i] && blinkState);
-
-    digitalWrite(v.ledPrim, primBlink ? HIGH : LOW);
-    digitalWrite(v.ledSec, secBlink ? HIGH : LOW);
   }
+
+  // ===== FIX BUG 4: STORING-LED LOGICA =====
+  // Knop uit          -> LED uit
+  // Knop aan + niet opgelost -> LED knippert
+  // Knop aan + opgelost      -> LED continu aan
+  //
+  // Storing 1 (trafo 1, index 0): opgelost = allSenseOk
+  // Storing 2 (trafo 2, index 1): opgelost = allPairsOk
+  // Trafo 3 (index 2): geen storing-knop
+  for (int i = 0; i < 3; i++) {
+    Veld& v = velden[i];
+
+    bool primLed = false;
+    bool secLed = false;
+
+    if (btnVeld[i]) {
+      bool storingOpgelost = false;
+      if (i == 0) storingOpgelost = allSenseOk;
+      else if (i == 1) storingOpgelost = allPairsOk;
+
+      if (storingOpgelost) {
+        primLed = true;   // continu aan
+        secLed = true;
+      } else {
+        primLed = blinkState;  // knipperen
+        secLed = blinkState;
+      }
+    }
+
+    digitalWrite(v.ledPrim, primLed ? HIGH : LOW);
+    digitalWrite(v.ledSec, secLed ? HIGH : LOW);
+  }
+
+  // ===== FIX BUG 2: KOPPELVELD ALARM =====
+  // Als koppelveld uitschakelt terwijl beide RS (A+B of C+D) in een veld aan staan -> alarm
+  static bool prevKoppelPrimActief = false;
+  static bool prevKoppelSecActief = false;
+
+  if (prevKoppelPrimActief && !koppelPrimActief) {
+    for (int i = 0; i < 3; i++) {
+      if (rsA[i] == RS_ON && rsB[i] == RS_ON) {
+        triggerFault(velden[i].naam, "KOPPEL-PRIM", "Koppelveld prim UIT terwijl RS-A en RS-B beide IN staan!");
+      }
+    }
+  }
+  if (prevKoppelSecActief && !koppelSecActief) {
+    for (int i = 0; i < 3; i++) {
+      if (rsC[i] == RS_ON && rsD[i] == RS_ON) {
+        triggerFault(velden[i].naam, "KOPPEL-SEC", "Koppelveld sec UIT terwijl RS-C en RS-D beide IN staan!");
+      }
+    }
+  }
+
+  // Continue check: koppelveld uit en beide RS aan = blijvend alarm
+  if (!koppelPrimActief) {
+    for (int i = 0; i < 3; i++) {
+      if (rsA[i] == RS_ON && rsB[i] == RS_ON) {
+        buzzerUntil = now + BUZZER_LATCH_MS;
+      }
+    }
+  }
+  if (!koppelSecActief) {
+    for (int i = 0; i < 3; i++) {
+      if (rsC[i] == RS_ON && rsD[i] == RS_ON) {
+        buzzerUntil = now + BUZZER_LATCH_MS;
+      }
+    }
+  }
+
+  prevKoppelPrimActief = koppelPrimActief;
+  prevKoppelSecActief = koppelSecActief;
 
   // EXTRA BUZZER-REGELS
   bool allVsPrimOut = (!vsPrimI[0] && !vsPrimI[1] && !vsPrimI[2]);
@@ -342,7 +481,7 @@ void loop() {
 
   if (!prevAllVsPrimOut && allVsPrimOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_PRIM = UIT(O) -> buzzer AAN");
   if (!prevAllVsSecOut && allVsSecOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_SEC  = UIT(O) -> buzzer AAN");
-  if (!prevAllVsBothOut && allVsPrimAndSecOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_PRIM én VS_SEC = UIT(O) -> buzzer AAN");
+  if (!prevAllVsBothOut && allVsPrimAndSecOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE VS_PRIM en VS_SEC = UIT(O) -> buzzer AAN");
   if (!prevAllRsCDOut && allRsCDOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE RS_C en RS_D = UIT -> buzzer AAN");
   if (!prevAllRsABOut && allRsABOut) triggerFault("SYSTEEM", "GLOBAL", "ALLE RS_A en RS_B = UIT -> buzzer AAN");
 
@@ -356,87 +495,61 @@ void loop() {
     buzzerUntil = now + BUZZER_LATCH_MS;
   }
 
-  //  NIEUW: 4 LEDS (2 sets) LOGICA + SERIAL [MW: voorwaarden kloppen niet! Hier moet worden gekeken of een 10kV-rail wel of geen spanning heeft]
-  bool allRsCOut = (rsC[0] == RS_OFF && rsC[1] == RS_OFF && rsC[2] == RS_OFF);
-  bool allRsDOut = (rsD[0] == RS_OFF && rsD[1] == RS_OFF && rsD[2] == RS_OFF);
+  // ===== FIX BUG 3: RAIL-LED LOGICA MET POWER FLOW MODEL =====
+  // Bepaal welke 50kV rails spanning hebben
+  // Rail D (50kV) = altijd spanning (12V van Arduino)
+  // Rail C (50kV) = alleen spanning als Koppelveld Prim (V55) actief is
+  bool railCPowered = koppelPrimActief;
+  bool railDPowered = true;
 
-  bool ledSetC_on = true;
-  bool ledSetD_on = true;
+  // Bepaal per trafo of deze de 10kV-rail kan voeden
+  bool rail1Fed = false;  // 10kV Rail 1 (via RS_C)
+  bool rail2Fed = false;  // 10kV Rail 2 (via RS_D)
 
-  bool ledsAllOffCond = (allVsPrimOut || allVsSecOut || allRsCDOut || allRsABOut);
+  for (int i = 0; i < 3; i++) {
+    // Heeft deze trafo 50kV spanning?
+    bool has50kV = false;
+    if (rsA[i] == RS_ON && railCPowered) has50kV = true;
+    if (rsB[i] == RS_ON && railDPowered) has50kV = true;
 
-  if (ledsAllOffCond) {
-    ledSetC_on = false;
-    ledSetD_on = false;
-  } else {
-    if (!koppelSecActief) {
-      if (allRsCOut && !allRsDOut) ledSetC_on = false;
-      if (allRsDOut && !allRsCOut) ledSetD_on = false;
-    }
+    // Kan de trafo 10kV voeden? (beide VS'en moeten IN staan)
+    bool canFeed10kV = has50kV && vsPrimI[i] && vsSecI[i];
+
+    if (canFeed10kV && rsC[i] == RS_ON) rail1Fed = true;
+    if (canFeed10kV && rsD[i] == RS_ON) rail2Fed = true;
   }
 
-  digitalWrite(LED_SET_C_PIN, ledSetC_on ? HIGH : LOW);
-  digitalWrite(LED_SET_D_PIN, ledSetD_on ? HIGH : LOW);
-
-  static bool prevLedSetC = true;
-  static bool prevLedSetD = true;
-  static bool prevLedsAllOff = false;
-
-  if (ledsAllOffCond != prevLedsAllOff) {
-    if (DEBUG) {
-      if (ledsAllOffCond) {
-        Serial.print(F("LED-SETS: ALLE 4 UIT | reden: "));
-        bool first = true;
-        if (allVsPrimOut) {
-          Serial.print(first ? F("ALL VS_PRIM OUT") : F(", ALL VS_PRIM OUT"));
-          first = false;
-        }
-        if (allVsSecOut) {
-          Serial.print(first ? F("ALL VS_SEC OUT") : F(", ALL VS_SEC OUT"));
-          first = false;
-        }
-        if (allRsABOut) {
-          Serial.print(first ? F("ALL RS_A+B OUT") : F(", ALL RS_A+B OUT"));
-          first = false;
-        }
-        if (allRsCDOut) {
-          Serial.print(first ? F("ALL RS_C+D OUT") : F(", ALL RS_C+D OUT"));
-          first = false;
-        }
-        Serial.println();
-      } else {
-        Serial.println(F("LED-SETS: niet meer in 'alles-uit' conditie (terug naar normale logica)."));
-      }
-    }
-    prevLedsAllOff = ledsAllOffCond;
+  // Als Koppelveld Sec (V16) actief is, zijn Rail 1 en Rail 2 verbonden
+  if (koppelSecActief && (rail1Fed || rail2Fed)) {
+    rail1Fed = true;
+    rail2Fed = true;
   }
 
-  if (ledSetC_on != prevLedSetC) {
+  digitalWrite(LED_SET_C_PIN, rail1Fed ? HIGH : LOW);
+  digitalWrite(LED_SET_D_PIN, rail2Fed ? HIGH : LOW);
+
+  // Debug logging voor rail-LEDs
+  static bool prevRail1Fed = true;
+  static bool prevRail2Fed = true;
+
+  if (rail1Fed != prevRail1Fed) {
     if (DEBUG) {
-      Serial.print(F("LED-SET C (pin "));
+      Serial.print(F("RAIL-1 LED (pin "));
       Serial.print(LED_SET_C_PIN);
       Serial.print(F(") = "));
-      Serial.print(ledSetC_on ? F("AAN") : F("UIT"));
-      if (!ledSetC_on && !ledsAllOffCond && !koppelSecActief && allRsCOut && !allRsDOut) {
-        Serial.print(F(" | reden: koppelSec=UIT en ALLEEN RS_C UIT"));
-      }
-      Serial.println();
+      Serial.println(rail1Fed ? F("AAN (spanning)") : F("UIT (geen spanning)"));
     }
-    prevLedSetC = ledSetC_on;
+    prevRail1Fed = rail1Fed;
   }
 
-  if (ledSetD_on != prevLedSetD) {
+  if (rail2Fed != prevRail2Fed) {
     if (DEBUG) {
-      Serial.print(F("LED-SET D (pin "));
+      Serial.print(F("RAIL-2 LED (pin "));
       Serial.print(LED_SET_D_PIN);
       Serial.print(F(") = "));
-      Serial.print(ledSetD_on ? F("AAN") : F("UIT"));
-      if (!ledSetD_on && !ledsAllOffCond && !koppelSecActief && allRsDOut && !allRsCOut) {
-        Serial.print(F(" | reden: koppelSec=UIT en ALLEEN RS_D UIT"));
-      }
-      Serial.println();
+      Serial.println(rail2Fed ? F("AAN (spanning)") : F("UIT (geen spanning)"));
     }
-    prevLedSetD = ledSetD_on;
+    prevRail2Fed = rail2Fed;
   }
 
   //  EDGE DETECT RS-fouten (bestaand)
@@ -484,72 +597,6 @@ void loop() {
     prevD[i] = rsD[i];
   }
 
-  //  2->7 VERBINDINGSCHECK (SERIAL + per verandering)
-  static bool prevSenseOk[NUM_SENSE] = { false, false, false, false, false, false, false };
-  bool senseOk[NUM_SENSE];
-  bool allSenseOk = true;
-
-  for (uint8_t i = 0; i < NUM_SENSE; i++) {
-    bool ok = (digitalRead(SENSE_PINS[i]) == LOW);
-    senseOk[i] = ok;
-    if (!ok) allSenseOk = false;
-
-    if (ok != prevSenseOk[i]) {
-      if (DEBUG) {
-        Serial.print(F("SENSE "));
-        Serial.print(i + 1);
-        Serial.print(F(" (pin "));
-        Serial.print(SENSE_PINS[i]);
-        Serial.print(F(") = "));
-        Serial.println(ok ? F("AANGESLOTEN") : F("NIET AANGESLOTEN"));
-      }
-      prevSenseOk[i] = ok;
-    }
-  }
-
-  static bool prevAllSenseOk = true;
-  if (allSenseOk != prevAllSenseOk) {
-    if (DEBUG) {
-      if (!allSenseOk) Serial.println(F("!!! VERBINDING FOUT: minstens 1 van de 7 ontvangers is HIGH (geen aansluiting)."));
-      else Serial.println(F("OK: alle 7 ontvangers zijn LOW (aangesloten)."));
-    }
-    prevAllSenseOk = allSenseOk;
-  }
-
-  // pairs check
-  static bool prevPairOk[NUM_PAIRS] = { false };
-  bool pairOk[NUM_PAIRS];
-  bool allPairsOk = true;
-
-  for (uint8_t i = 0; i < NUM_PAIRS; i++) {
-    bool ok = (digitalRead(PAIR_RX_PINS[i]) == LOW);
-    pairOk[i] = ok;
-    if (!ok) allPairsOk = false;
-
-    if (ok != prevPairOk[i]) {
-      if (DEBUG) {
-        Serial.print(F("PAIR "));
-        Serial.print(i + 1);
-        Serial.print(F(" (TX "));
-        Serial.print(PAIR_TX_PINS[i]);
-        Serial.print(F(" -> RX "));
-        Serial.print(PAIR_RX_PINS[i]);
-        Serial.print(F(") = "));
-        Serial.println(ok ? F("OK (ontvangt)") : F("FOUT (geen ontvangst)"));
-      }
-      prevPairOk[i] = ok;
-    }
-  }
-
-  static bool prevAllPairsOk = true;
-  if (allPairsOk != prevAllPairsOk) {
-    if (DEBUG) {
-      if (!allPairsOk) Serial.println(F("!!! PAIR FOUT: minstens 1 pair ontvangt geen signaal (RX HIGH)."));
-      else Serial.println(F("OK: alle pairs ontvangen signaal (RX LOW)."));
-    }
-    prevAllPairsOk = allPairsOk;
-  }
-
   // BUZZER LATCH
   bool buzzerOn = ((long)(buzzerUntil - now) > 0);
   digitalWrite(BUZZER_PIN, buzzerOn ? HIGH : LOW);
@@ -567,19 +614,18 @@ void loop() {
     Serial.print(F("mV | boven drempel="));
     Serial.println(voltHigh ? F("JA") : F("NEE"));
 
-    Serial.print(F("EXTRA LEDS: SET_C="));
-    Serial.print(prevLedSetC ? "AAN" : "UIT");
-    Serial.print(F(" | SET_D="));
-    Serial.print(prevLedSetD ? "AAN" : "UIT");
-    Serial.print(F(" | allOffCond="));
-    Serial.println(prevLedsAllOff ? "JA" : "NEE");
+    Serial.print(F("RAIL LEDS: Rail1="));
+    Serial.print(rail1Fed ? "AAN" : "UIT");
+    Serial.print(F(" | Rail2="));
+    Serial.println(rail2Fed ? "AAN" : "UIT");
 
-    Serial.print(F(" || Secundaire storing V1 = "));
-    Serial.print(btnVeld[0] ? "IN" : "UIT");
-    Serial.print(F(" | Secundaire storing V2 = "));
-    Serial.print(btnVeld[1] ? "IN" : "UIT");
-    Serial.print(F(" | Secundaire storing V3 = "));
-    Serial.println(btnVeld[2] ? "IN" : "UIT");
+    Serial.print(F(" || Storing trafo 1 = "));
+    Serial.print(btnVeld[0] ? "AAN" : "UIT");
+    if (btnVeld[0]) { Serial.print(allSenseOk ? F(" (opgelost)") : F(" (NIET opgelost)")); }
+    Serial.print(F(" | Storing trafo 2 = "));
+    Serial.print(btnVeld[1] ? "AAN" : "UIT");
+    if (btnVeld[1]) { Serial.print(allPairsOk ? F(" (opgelost)") : F(" (NIET opgelost)")); }
+    Serial.println();
 
     for (int i = 0; i < 3; i++) {
       Serial.print(velden[i].naam);
@@ -606,7 +652,7 @@ void loop() {
     Serial.print(F(" | all RS C+D Out = "));
     Serial.println(allRsCDOut ? "JA" : "NEE");
 
-    Serial.print(F("Zijn alle aansluitingen van de eerste storing compleet?  = "));
+    Serial.print(F("Storing 1 verbindingen compleet? = "));
     Serial.println(allSenseOk ? F("JA") : F("NEE"));
 
     Serial.println(F("SENSE STATUS (1..7):"));
