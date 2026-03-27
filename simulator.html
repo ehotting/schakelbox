@@ -902,6 +902,13 @@ function runLoop() {
     rail2Fed = true;
   }
 
+  // Rail spanning verloren -> buzzer
+  if (state.prev.rail1Fed && !rail1Fed) {
+    triggerFault("SYSTEEM", "RAIL-1", "10kV Rail 1 heeft geen spanning meer!");
+  }
+  if (state.prev.rail2Fed && !rail2Fed) {
+    triggerFault("SYSTEEM", "RAIL-2", "10kV Rail 2 heeft geen spanning meer!");
+  }
   // Rail LED logging
   if (rail1Fed !== state.prev.rail1Fed) {
     serialPrintln(`RAIL-1 LED = ${rail1Fed ? 'AAN (spanning)' : 'UIT (geen spanning)'}`);

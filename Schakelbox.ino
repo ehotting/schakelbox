@@ -539,6 +539,14 @@ void loop() {
   static bool prevRail1Fed = true;
   static bool prevRail2Fed = true;
 
+  // Rail spanning verloren -> buzzer
+  if (prevRail1Fed && !rail1Fed) {
+    triggerFault("SYSTEEM", "RAIL-1", "10kV Rail 1 heeft geen spanning meer!");
+  }
+  if (prevRail2Fed && !rail2Fed) {
+    triggerFault("SYSTEEM", "RAIL-2", "10kV Rail 2 heeft geen spanning meer!");
+  }
+
   if (rail1Fed != prevRail1Fed) {
     if (DEBUG) {
       Serial.print(F("RAIL-1 LED (pin "));
