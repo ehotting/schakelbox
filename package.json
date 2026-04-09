@@ -1,0 +1,16 @@
+{
+  "name": "schakelbox",
+  "version": "1.0.0",
+  "description": "Trainingssimulator voor het schakelen in een 50/10kV onderstation met 3 trafovelden. Draait op een Arduino Mega 2560 R3 met fysieke schakelaars, 12V signaal-LEDs en buzzers.",
+  "main": "schakelbox_logic.js",
+  "scripts": {
+    "test": "cucumber-js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@cucumber/cucumber": "^12.7.0"
+  }
+}
