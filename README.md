@@ -2,6 +2,9 @@
 
 Trainingssimulator voor het schakelen in een 50/10kV onderstation met 3 trafovelden. Draait op een Arduino Mega 2560 R3 met fysieke schakelaars, 12V signaal-LEDs en buzzers.
 
+![Simulator](docs/simulator.png)
+![Arduino Pinout](docs/pinout.png)
+
 ## Bestanden
 
 - `schakelbox_v7.ino` - Arduino sketch
