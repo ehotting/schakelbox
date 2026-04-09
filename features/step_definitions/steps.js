@@ -120,6 +120,18 @@ When('ik koppelveld primair sluit', function () {
   herbereken();
 });
 
+When('ik koppelveld secundair open', function () {
+  prevSpanning = [...spanning];
+  state.koppelSec = false;
+  herbereken();
+  fouten.push(...logic.checkRailkoppeling(state, spanning));
+});
+
+When('ik koppelveld secundair sluit', function () {
+  state.koppelSec = true;
+  herbereken();
+});
+
 When('ik trafo {int} punt {int} aard', function (t, punt) {
   state.aard[t-1][punt-1] = true;
   herbereken();
@@ -166,6 +178,21 @@ Then('heeft Rail 2 geen spanning', function () {
 Then('heeft trafoPrim van trafo {int} spanning', function (t) {
   herbereken();
   assert.strictEqual(spanning[logic.TRAFO_PRIM_0 + t - 1], true);
+});
+
+Then('heeft trafoPrim van trafo {int} geen spanning', function (t) {
+  herbereken();
+  assert.strictEqual(spanning[logic.TRAFO_PRIM_0 + t - 1], false);
+});
+
+Then('heeft trafoSec van trafo {int} spanning', function (t) {
+  herbereken();
+  assert.strictEqual(spanning[logic.TRAFO_SEC_0 + t - 1], true);
+});
+
+Then('heeft trafoSec van trafo {int} geen spanning', function (t) {
+  herbereken();
+  assert.strictEqual(spanning[logic.TRAFO_SEC_0 + t - 1], false);
 });
 
 Then('heeft het middenpunt van trafo {int} spanning', function (t) {
