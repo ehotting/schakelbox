@@ -21,12 +21,6 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
 .rail-label { font-size: 0.6em; font-weight: bold; min-width: 60px; white-space: nowrap; }
 .rail-bar { height: 6px; border-radius: 3px; flex: 1; transition: box-shadow 0.3s; }
 .rail-pwr { margin-right: 3px; flex-shrink: 0; }
-.jct { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #444; flex-shrink: 0; transition: all 0.2s; }
-.jct.on { background: #ff6; box-shadow: 0 0 5px 1px rgba(255,255,0,0.8); border-color: #cc0; }
-.jct.off { background: #555; border-color: #444; }
-.wijk-marker { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; gap: 0; }
-.wijk-marker .led { width: 8px; height: 8px; }
-.wijk-marker .wlabel { font-size: 0.38em; color: #666; font-weight: bold; white-space: nowrap; line-height: 1; }
 .rail-c { background: #c33; } .rail-d { background: #a22; }
 .rail-1 { background: #33c; } .rail-2 { background: #22a; }
 .rail-bar.powered { box-shadow: 0 0 8px 2px rgba(255,255,0,0.6); }
@@ -511,14 +505,82 @@ function calcSpan(sv,sr){const s=new Array(NUM_NODES).fill(false);s[RAIL_50D]=tr
 // === FAULTS ===
 function fout(s,v,b){const n=Date.now();state.buzzerTot[s]=n+(BUZZER_DUUR_PER_TYPE[s]||BUZZER_DUUR);sL(`!!! FOUT ${s} | ${v} | ${b}`,`fout-${s}`);}
 function rsN(v,r){return[[RAIL_50C,TRAFO_PRIM_0+v],[RAIL_50D,TRAFO_PRIM_0+v],[TRAFO_SEC_0+v,RAIL_10_1],[TRAFO_SEC_0+v,RAIL_10_2]][r];}
-function ckSF(v,r){const[a,b]=rsN(v,r);const s=calcSpan(v,r);if(s[a]===s[b])return;if((r<=1)?state.vs[v][0]:state.vs[v][1])fout(1,VELD_NAMEN[v],`${RS_LABELS[r]} geschakeld onder belasting!`);}
+function ckSF(v,r){
+  const[a,b]=rsN(v,r);
+  const s=calcSpan(v,r);
+  const vsDicht=(r<=1)?state.vs[v][0]:state.vs[v][1];
+  sL(`  [check] ${VELD_NAMEN[v]} ${RS_LABELS[r]}: ${NODE_NAMEN[a]}=${s[a]?'JA':'--'} ${NODE_NAMEN[b]}=${s[b]?'JA':'--'} VS=${vsDicht?'DICHT':'OPEN'}`);
+  if(s[a]===s[b]){sL(`  [check] Zelfde potentiaal → veilig`);return;}
+  if(vsDicht){fout(1,VELD_NAMEN[v],`${RS_LABELS[r]} geschakeld onder belasting!`);}
+  else{sL(`  [check] Potentiaalverschil maar VS open → veilig`);}
+}
 function ckUV(){if(prevSpanning[RAIL_10_1]&&!spanning[RAIL_10_1])fout(2,'SYSTEEM','10kV Rail 1 geen spanning!');if(prevSpanning[RAIL_10_2]&&!spanning[RAIL_10_2])fout(2,'SYSTEEM','10kV Rail 2 geen spanning!');}
-function ckRK(now){for(let v=0;v<3;v++){ckP(v,0,state.rs[v][0]&&state.rs[v][1],'RS C+D',now);ckP(v,1,state.rs[v][2]&&state.rs[v][3],'RS 1+2',now);}}
-function ckP(v,p,bd,l,now){if(bd){if(state.koppelingStart[v][p]===0){state.koppelingStart[v][p]=now;state.koppelingAlarm[v][p]=false;}if(!state.koppelingAlarm[v][p]&&(now-state.koppelingStart[v][p])>=KOPPELING_MAX_MS){fout(3,VELD_NAMEN[v],`RAILKOPPELING: ${l} >60s!`);state.koppelingAlarm[v][p]=true;}if(state.koppelingAlarm[v][p])state.buzzerTot[3]=now+BUZZER_DUUR;}else{state.koppelingStart[v][p]=0;state.koppelingAlarm[v][p]=false;}}
+function ckRK(now){
+  for(let v=0;v<3;v++){
+    const beideDicht50=state.rs[v][0]&&state.rs[v][1];
+    const beideDicht10=state.rs[v][2]&&state.rs[v][3];
+    // 50kV: beide RS dicht zonder koppelveld = direct fout 1
+    if(beideDicht50&&!state.koppelPrim){
+      if(!state._kopFout50||!state._kopFout50[v]){
+        fout(1,VELD_NAMEN[v],'RS C+D beide dicht ZONDER koppelveld prim! Vlamboog!');
+        if(!state._kopFout50)state._kopFout50=[false,false,false];
+        state._kopFout50[v]=true;
+      }
+    } else { if(state._kopFout50)state._kopFout50[v]=false; }
+    // 10kV: beide RS dicht zonder koppelveld = direct fout 1
+    if(beideDicht10&&!state.koppelSec){
+      if(!state._kopFout10||!state._kopFout10[v]){
+        fout(1,VELD_NAMEN[v],'RS 1+2 beide dicht ZONDER koppelveld sec! Vlamboog!');
+        if(!state._kopFout10)state._kopFout10=[false,false,false];
+        state._kopFout10[v]=true;
+      }
+    } else { if(state._kopFout10)state._kopFout10[v]=false; }
+    // Met koppelveld: 60s timer
+    ckP(v,0,beideDicht50&&state.koppelPrim,'RS C+D',now);
+    ckP(v,1,beideDicht10&&state.koppelSec,'RS 1+2',now);
+  }
+}
+function ckP(v,p,bd,l,now){
+  if(bd){
+    if(state.koppelingStart[v][p]===0){
+      state.koppelingStart[v][p]=now;
+      state.koppelingAlarm[v][p]=false;
+      if(!state._kopLastLog) state._kopLastLog={};
+      state._kopLastLog[v+'_'+p]=0;
+      sL(`${VELD_NAMEN[v]} ${l} beide dicht — max 60s!`);
+    }
+    const elapsed=Math.floor((now-state.koppelingStart[v][p])/1000);
+    // Countdown elke 10 seconden
+    const logKey=v+'_'+p;
+    if(!state._kopLastLog) state._kopLastLog={};
+    if(elapsed>0 && elapsed%10===0 && state._kopLastLog[logKey]!==elapsed){
+      state._kopLastLog[logKey]=elapsed;
+      sL(`  ${VELD_NAMEN[v]} ${l}: ${elapsed}s / 60s`);
+    }
+    if(!state.koppelingAlarm[v][p]&&elapsed>=60){
+      fout(3,VELD_NAMEN[v],`RAILKOPPELING: ${l} >60s!`);
+      state.koppelingAlarm[v][p]=true;
+    }
+    if(state.koppelingAlarm[v][p])state.buzzerTot[3]=now+BUZZER_DUUR;
+  }else{
+    if(state.koppelingStart[v][p]>0) sL(`${VELD_NAMEN[v]} ${l} opgeheven.`);
+    state.koppelingStart[v][p]=0;state.koppelingAlarm[v][p]=false;
+  }
+}
 
 // === TOGGLES ===
 function toggleRS(v,r){state.rs[v][r]=!state.rs[v][r];uT(`tog-rs-${v}-${r}`,state.rs[v][r]);runLoop();}
-function toggleVS(v,i){if(state.scenario===2&&v===1&&i===0){const t=document.getElementById(`tog-vs-${v}-${i}`);t.classList.toggle('on');sL('VS-PRIM Veld 53 in storing - schakelt NIET!','fout-2');setTimeout(()=>t.classList.add('on'),300);return;}state.vs[v][i]=!state.vs[v][i];uT(`tog-vs-${v}-${i}`,state.vs[v][i]);runLoop();}
+function toggleVS(v,i){
+  // Scenario 2: VS-prim T2 stuk — blokkeert TENZIJ storing opgelost
+  if(state.scenario===2&&v===1&&i===0&&!isStor2Opgelost()){
+    const t=document.getElementById(`tog-vs-${v}-${i}`);
+    t.classList.toggle('on');
+    sL('VS-PRIM Veld 53 in storing - schakelt NIET!','fout-2');
+    setTimeout(()=>t.classList.add('on'),300);
+    return;
+  }
+  state.vs[v][i]=!state.vs[v][i];uT(`tog-vs-${v}-${i}`,state.vs[v][i]);runLoop();
+}
 // Spanning op een aardpunt: 0=boven VS-P (trafoPrim), 1=midden, 2=onder VS-S (trafoSec)
 function aardPuntSpanning(v,punt){
   if(punt===0) return spanning[TRAFO_PRIM_0+v];
@@ -560,10 +622,11 @@ function clickAardPunt(v){
   state.aard[v][p]=true;
   cancelAardDrag();
   // Check spanning
+  const puntNamen=['boven VS-P','midden','onder VS-S'];
   if(aardPuntSpanning(v,p)){
-    fout(1,VELD_NAMEN[v],`Aarding op punt ${p+1} terwijl er spanning staat! Dodelijke vlamboog!`);
+    fout(1,VELD_NAMEN[v],`Aarding op ${puntNamen[p]} terwijl er spanning staat! Dodelijke vlamboog!`);
   } else {
-    sL(`${VELD_NAMEN[v]} punt ${p+1} veilig geaard.`);
+    sL(`OK: ${VELD_NAMEN[v]} ${puntNamen[p]} veilig geaard.`);
   }
   runLoop();
 }
@@ -604,8 +667,7 @@ function setScenario(n){
   document.getElementById('sense-panel').style.display=(n===1)?'block':'none';
   document.getElementById('pair-panel').style.display=(n===2)?'block':'none';
   if(n===1){sL('SCENARIO 1: Trafo 1 stuk. Verbind A2-A7 met GND om storing op te lossen.','fout-2');}
-  if(n===2){sL('SCENARIO 2: VS-prim T2 stuk. Verbind A8 met A9 om storing op te lossen.','fout-2');}
-  if(n===2){state.vs[1][0]=true;uT('tog-vs-1-0',true);sL('SCENARIO 2: VS-prim Veld 53 in storing.','fout-2');}
+  if(n===2){state.vs[1][0]=true;uT('tog-vs-1-0',true);sL('SCENARIO 2: VS-prim Veld 53 in storing. Verbind A8 met A9 om op te lossen.','fout-2');}
   runLoop();
 }
 
@@ -617,11 +679,15 @@ function runLoop(){
   ckUV();ckRK(now);
   // Verkeerde schakelvolgorde (fout 4)
   for(let v=0;v<3;v++){if(prevVs[v][0]&&!state.vs[v][0]&&state.vs[v][1])fout(4,VELD_NAMEN[v],'Verkeerde volgorde: VS-prim UIT terwijl VS-sec IN.');if(!prevVs[v][1]&&state.vs[v][1]&&!state.vs[v][0])fout(4,VELD_NAMEN[v],'Verkeerde volgorde: VS-sec IN terwijl VS-prim UIT.');}
-  // Aarding fout: spanning komt op geaard punt (fout 1)
+  // Aarding fout: spanning komt op geaard punt (fout 1) — edge detection
   for(let v=0;v<3;v++)for(let p=0;p<3;p++){
-    if(state.aard[v][p]&&aardPuntSpanning(v,p)){
+    const aardFout=state.aard[v][p]&&aardPuntSpanning(v,p);
+    const wasAardFout=state._prevAardFout&&state._prevAardFout[v*3+p];
+    if(aardFout&&!wasAardFout){
       fout(1,VELD_NAMEN[v],`Spanning op geaard punt ${p+1}! Dodelijke vlamboog!`);
     }
+    if(!state._prevAardFout)state._prevAardFout=new Array(9).fill(false);
+    state._prevAardFout[v*3+p]=aardFout;
   }
   prevRs=state.rs.map(v=>[...v]);prevVs=state.vs.map(v=>[...v]);
   updateUI(now);
@@ -644,27 +710,19 @@ function updateUI(now){
   sL2('led-rail1-pwr',spanning[RAIL_10_1]?'red':'red-dim');
   sL2('led-rail2-pwr',spanning[RAIL_10_2]?'red':'red-dim');
 
-  // Kruispunt-LEDs (fictief): aan als RS dicht EN rail heeft spanning
-  const railNodes = [RAIL_50C, RAIL_50D, RAIL_10_1, RAIL_10_2];
-  for(let v=0;v<3;v++)for(let r=0;r<4;r++){
-    const el=document.getElementById(`jct-${v}-${r}`);
-    if(el) el.className='jct '+(state.rs[v][r]&&spanning[railNodes[r]]?'on':'off');
-  }
 
-  // V13 Duinpad: alleen Rail 1 LED aan, Rail 2 altijd uit
-  sL2('led-v13-1',spanning[RAIL_10_1]?'red':'red-dim');
-  sL2('led-v13-2','off');
-  // V15 Fre de Rik: alleen Rail 2 LED aan, Rail 1 altijd uit
-  sL2('led-v15-1','off');
-  sL2('led-v15-2',spanning[RAIL_10_2]?'red':'red-dim');
-
-  // Storing LEDs
+  // Storing LEDs + opgelost logging
   const bk=(Math.floor(now/BLINK_INTERVAL)%2)===0;
   const st=[[false,false],[false,false],[false,false]];
+  if(!state._prevStor1Ok&&state.scenario===1&&isStor1Opgelost()){sL('STORING 1 OPGELOST! Alle verbindingen correct.','fout-2');state._prevStor1Ok=true;}
+  if(!state._prevStor2Ok&&state.scenario===2&&isStor2Opgelost()){sL('STORING 2 OPGELOST! Pair verbonden. VS-prim werkt weer.','fout-2');state._prevStor2Ok=true;}
+  if(state.scenario!==1)state._prevStor1Ok=false;
+  if(state.scenario!==2)state._prevStor2Ok=false;
+
   for(let v=0;v<3;v++)for(let i=0;i<2;i++){let ls='off',on=false;
     if(state.scenario===1&&v===0){
-      if(isStor1Opgelost()){ls='orange';on=true;}  // continu aan
-      else{ls=bk?'orange':'orange-dim';on=bk;}     // knipperen
+      if(isStor1Opgelost()){ls='orange';on=true;}
+      else{ls=bk?'orange':'orange-dim';on=bk;}
     }
     else if(state.scenario===2&&v===1&&i===0){
       if(isStor2Opgelost()){ls='orange';on=true;}
@@ -695,11 +753,18 @@ function updateUI(now){
   sD('pd-12',st[2][0]?'hi-out':'lo'); // ST T3p
   sD('pd-13',st[2][1]?'hi-out':'lo'); // ST T3s
   // Buzzer pins: D6 = kort (3s bij elke fout), D7 = permanent (zolang fout voortduurt)
-  const shortBuzzer = ba;  // kort: aan bij elke fout trigger
+  const shortBuzzer = ba;
+  const heeftAardFout = state._prevAardFout && state._prevAardFout.some(x=>x);
+  const heeftKopFout50 = state._kopFout50 && state._kopFout50.some(x=>x);
+  const heeftKopFout10 = state._kopFout10 && state._kopFout10.some(x=>x);
   const permBuzzer = spanning[RAIL_10_1]===false || spanning[RAIL_10_2]===false  // uitval
-    || state.koppelingAlarm.some(v => v[0] || v[1]);  // railkoppeling
+    || state.koppelingAlarm.some(v => v[0] || v[1])  // railkoppeling >60s
+    || heeftAardFout  // spanning op geaard punt
+    || heeftKopFout50 || heeftKopFout10;  // RS dicht zonder koppelveld
   sD('pd-6', shortBuzzer ? 'hi-buz' : 'lo');
   sD('pd-7', permBuzzer ? 'hi-buz' : 'lo');
+  // Permanente buzzer houdt ook audio aan (type 1 toon)
+  if(permBuzzer) state.buzzerTot[1]=Math.max(state.buzzerTot[1]||0,now+500);
 
   // === PINOUT: Input pins (bottom strip D26-D47) ===
   // Per trafo 6 pins: RS-C, RS-D, VS-p, VS-s, RS-1, RS-2
@@ -749,6 +814,8 @@ function resetStartScenario(){
   state.senseA1=false;state.senseGoed=[false,false,false,false,false,false];
   state.pairOk=false;
   state.aard=[[false,false,false],[false,false,false],[false,false,false]];
+  state._prevAardFout=new Array(9).fill(false);
+  cancelAardDrag();
   renderSenseGrid();renderPairGrid();
   prevRs=state.rs.map(v=>[...v]);prevVs=state.vs.map(v=>[...v]);
   for(let v=0;v<3;v++){for(let r=0;r<4;r++)uT(`tog-rs-${v}-${r}`,state.rs[v][r]);for(let i=0;i<2;i++)uT(`tog-vs-${v}-${i}`,state.vs[v][i]);}
@@ -757,6 +824,8 @@ function resetStartScenario(){
 }
 
 // === SENSE PUZZLE ===
+function isTrafoGeaard(v){return state.aard[v].some(x=>x);}
+
 function renderSenseGrid(){
   const g=document.getElementById('sense-grid');
   g.innerHTML='';
@@ -764,14 +833,26 @@ function renderSenseGrid(){
   const b1=document.createElement('button');
   b1.className='sense-btn'+(state.senseA1?' fout':'');
   b1.textContent='A1: '+(state.senseA1?'FOUT!':'los');
-  b1.onclick=()=>{state.senseA1=!state.senseA1;if(state.senseA1)fout(5,'STORING 1','Foute pin A1 aangesloten!');renderSenseGrid();runLoop();};
+  b1.onclick=()=>{
+    state.senseA1=!state.senseA1;
+    if(state.senseA1){
+      if(!isTrafoGeaard(0))fout(1,'STORING 1','Werken zonder aarding! Dodelijk gevaar!');
+      fout(5,'STORING 1','Foute pin A1 aangesloten!');
+    }
+    renderSenseGrid();runLoop();
+  };
   g.appendChild(b1);
   // A2-A7 = goede pins
   for(let i=0;i<6;i++){
     const b=document.createElement('button');
     b.className='sense-btn'+(state.senseGoed[i]?' connected':'');
     b.textContent=`A${i+2}: ${state.senseGoed[i]?'OK':'los'}`;
-    b.onclick=(()=>{const idx=i;return()=>{state.senseGoed[idx]=!state.senseGoed[idx];renderSenseGrid();runLoop();};})();
+    b.onclick=(()=>{const idx=i;return()=>{
+      if(!state.senseGoed[idx]&&!isTrafoGeaard(0)){
+        fout(1,'STORING 1','Werken zonder aarding! Dodelijk gevaar!');
+      }
+      state.senseGoed[idx]=!state.senseGoed[idx];renderSenseGrid();runLoop();
+    };})();
     g.appendChild(b);
   }
 }
@@ -781,7 +862,12 @@ function renderPairGrid(){
   const b=document.createElement('button');
   b.className='sense-btn'+(state.pairOk?' connected':'');
   b.textContent='A8↔A9: '+(state.pairOk?'VERBONDEN':'los');
-  b.onclick=()=>{state.pairOk=!state.pairOk;renderPairGrid();runLoop();};
+  b.onclick=()=>{
+    if(!state.pairOk&&!isTrafoGeaard(1)){
+      fout(1,'STORING 2','Werken zonder aarding! Dodelijk gevaar!');
+    }
+    state.pairOk=!state.pairOk;renderPairGrid();runLoop();
+  };
   g.appendChild(b);
 }
 function isStor1Opgelost(){return state.senseGoed.every(x=>x);}
