@@ -1,0 +1,1153 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schakelbox Simulator V6 - Power Flow</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+.container { max-width: 1300px; margin: 0 auto; padding: 10px; }
+h1 { text-align: center; font-size: 1.2em; padding: 6px; color: #aaa; }
+
+/* Panel */
+.panel {
+  background: #c8c8d0;
+  border: 3px solid #888;
+  border-radius: 8px;
+  padding: 15px;
+  color: #222;
+}
+
+/* Rails */
+.rail-section { margin: 4px 0; }
+.rail-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0;
+}
+.rail-label {
+  font-size: 0.7em;
+  font-weight: bold;
+  min-width: 75px;
+  white-space: nowrap;
+}
+.rail-bar {
+  height: 8px;
+  border-radius: 4px;
+  flex: 1;
+  transition: box-shadow 0.3s;
+}
+.rail-c { background: #c33; }
+.rail-d { background: #a22; }
+.rail-1 { background: #33c; }
+.rail-2 { background: #22a; }
+.rail-bar.powered { box-shadow: 0 0 10px 3px rgba(255,255,0,0.6); }
+
+/* Rail LED groups (V52, V13, V15) */
+.rail-led-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  min-width: 55px;
+}
+.rail-led-group .label {
+  font-size: 0.55em;
+  color: #555;
+  font-weight: bold;
+  white-space: nowrap;
+}
+
+/* Trafo row */
+.trafo-row {
+  display: flex;
+  gap: 8px;
+  margin: 10px 0;
+  align-items: flex-start;
+}
+
+/* Veld box */
+.veld {
+  background: #b0b0c0;
+  border: 2px solid #888;
+  border-radius: 6px;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+.veld-trafo {
+  flex: 1;
+  min-width: 140px;
+}
+.veld-label {
+  font-weight: bold;
+  font-size: 0.75em;
+  color: #333;
+}
+.veld-label-sec {
+  font-size: 0.7em;
+  color: #666;
+}
+
+/* Koppelveld */
+.koppel-box {
+  background: #a8a8b8;
+  border: 2px solid #888;
+  border-radius: 6px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-width: 80px;
+}
+
+/* Trafo icon */
+.trafo-icon {
+  width: 50px; height: 50px;
+  background: #4466aa;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.6em; color: white; font-weight: bold;
+  margin: 2px 0;
+  line-height: 1.2;
+  text-align: center;
+}
+
+/* Component rows */
+.component-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+}
+.switch-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.switch-label {
+  font-size: 0.6em;
+  color: #555;
+  white-space: nowrap;
+  font-weight: bold;
+}
+
+/* VS row with storing LED */
+.vs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+  width: 100%;
+}
+
+/* Toggle switch */
+.toggle {
+  width: 36px; height: 20px;
+  background: #666;
+  border-radius: 10px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  border: 1px solid #444;
+}
+.toggle.on { background: #4a4; }
+.toggle .knob {
+  width: 16px; height: 16px;
+  background: #ddd;
+  border-radius: 50%;
+  position: absolute;
+  top: 1px; left: 1px;
+  transition: left 0.2s;
+  border: 1px solid #999;
+}
+.toggle.on .knob { left: 17px; }
+.toggle:hover { opacity: 0.85; }
+
+/* VS toggle (larger, red when on) */
+.toggle.vs {
+  width: 42px; height: 24px;
+  border-radius: 12px;
+}
+.toggle.vs .knob {
+  width: 20px; height: 20px;
+  top: 1px; left: 1px;
+}
+.toggle.vs.on .knob { left: 19px; }
+.toggle.vs.on { background: #c44; }
+.toggle.vs.storing {
+  border: 2px solid #f80;
+  opacity: 0.8;
+}
+
+/* LEDs */
+.led {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 1px solid #333;
+  transition: all 0.15s;
+  position: relative;
+  flex-shrink: 0;
+}
+.led::before {
+  content: '';
+  position: absolute;
+  width: 4px; height: 4px;
+  background: radial-gradient(circle, rgba(255,255,255,0.5), transparent);
+  border-radius: 50%;
+  top: 2px; left: 3px;
+}
+.led.off {
+  background: radial-gradient(circle at 35% 35%, #444, #1a1a1a);
+  box-shadow: inset -1px -1px 3px rgba(0,0,0,0.8);
+}
+.led.off::before { opacity: 0.15; }
+.led.red {
+  background: radial-gradient(circle at 35% 35%, #ff5555, #cc0000);
+  box-shadow: 0 0 6px 1px rgba(255,0,0,0.9), 0 0 15px 3px rgba(255,0,0,0.5), inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+.led.red-dim {
+  background: radial-gradient(circle at 35% 35%, #662222, #330000);
+  box-shadow: inset -1px -1px 3px rgba(0,0,0,0.6);
+}
+.led.red-dim::before { opacity: 0.1; }
+.led.orange {
+  background: radial-gradient(circle at 35% 35%, #ffaa33, #cc6600);
+  box-shadow: 0 0 6px 1px rgba(255,160,0,0.9), 0 0 12px 2px rgba(255,160,0,0.5), inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+.led.orange-dim {
+  background: radial-gradient(circle at 35% 35%, #553300, #331a00);
+  box-shadow: inset -1px -1px 3px rgba(0,0,0,0.6);
+}
+.led.orange-dim::before { opacity: 0.1; }
+.led.yellow {
+  background: radial-gradient(circle at 35% 35%, #ffff55, #ccaa00);
+  box-shadow: 0 0 6px 1px rgba(255,255,0,0.9), 0 0 12px 2px rgba(255,255,0,0.5), inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+.led.green {
+  background: radial-gradient(circle at 35% 35%, #55ff55, #00aa00);
+  box-shadow: 0 0 6px 1px rgba(0,255,0,0.9), 0 0 12px 2px rgba(0,255,0,0.5), inset -1px -1px 3px rgba(0,0,0,0.3);
+}
+
+/* Buzzer indicator */
+.buzzer-indicator {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  background: #1a1a1a;
+  border: 2px solid #444;
+  border-radius: 8px;
+  font-size: 0.9em;
+  font-weight: bold;
+}
+.buzzer-indicator .led {
+  width: 22px; height: 22px;
+}
+
+/* Controls bar */
+.controls-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+
+/* Scenario selector */
+.scenario-bar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.scenario-btn {
+  padding: 6px 12px;
+  border: 2px solid #555;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 0.75em;
+  font-weight: bold;
+  background: #888;
+  color: #222;
+  transition: all 0.2s;
+}
+.scenario-btn.active {
+  background: #f80;
+  color: white;
+  border-color: #fa0;
+}
+.scenario-btn:hover { opacity: 0.85; }
+
+/* Separator */
+.separator { width: 100%; height: 1px; background: #999; margin: 2px 0; }
+
+/* Serial monitor */
+.serial-monitor {
+  background: #111;
+  color: #0f0;
+  font-family: 'Courier New', monospace;
+  font-size: 0.72em;
+  padding: 8px;
+  border-radius: 6px;
+  margin-top: 8px;
+  height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  line-height: 1.3;
+}
+
+/* Fout log items */
+.fout-1 { color: #f44; font-weight: bold; }
+.fout-2 { color: #fa0; }
+.fout-3 { color: #ff0; }
+.fout-4 { color: #aaf; font-style: italic; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Schakelbox Simulator V6 - Power Flow Model</h1>
+
+<!-- Scenario selector -->
+<div class="scenario-bar">
+  <span style="font-size:0.8em; color:#aaa; font-weight:bold;">Spelscenario:</span>
+  <button class="scenario-btn active" onclick="setScenario(0)">Geen storing</button>
+  <button class="scenario-btn" onclick="setScenario(1)">1: Trafo 1 stuk</button>
+  <button class="scenario-btn" onclick="setScenario(2)">2: VS-prim Trafo 2 stuk</button>
+</div>
+
+<div class="panel">
+
+  <!-- 50kV Rails -->
+  <div class="rail-section">
+    <div class="rail-row">
+      <span class="rail-label">50kV Rail C</span>
+      <div class="rail-led-group">
+        <span class="label">V52</span>
+        <div class="led off" id="led-v52c"></div>
+      </div>
+      <div class="rail-bar rail-c" id="railC-bar"></div>
+      <div class="koppel-box" style="min-width:70px; padding:4px;">
+        <span style="font-size:0.6em; font-weight:bold;">V55</span>
+        <span style="font-size:0.55em;">Koppel 1</span>
+        <div class="toggle vs" id="tog-koppelPrim" onclick="toggleKoppel('prim')"><div class="knob"></div></div>
+      </div>
+    </div>
+    <div class="rail-row">
+      <span class="rail-label">50kV Rail D</span>
+      <div class="rail-led-group">
+        <span class="label">V52</span>
+        <div class="led off" id="led-v52d"></div>
+      </div>
+      <div class="rail-bar rail-d" id="railD-bar"></div>
+      <div style="min-width:70px;"></div><!-- spacer -->
+    </div>
+  </div>
+
+  <!-- Trafo velden -->
+  <div class="trafo-row">
+
+    <!-- Trafo 1 -->
+    <div class="veld veld-trafo" id="box-trafo0">
+      <div class="veld-label">Veld 51</div>
+      <div class="component-row">
+        <div class="switch-group">
+          <span class="switch-label">RS C</span>
+          <div class="toggle" id="tog-rs-0-0" onclick="toggleRS(0,0)"><div class="knob"></div></div>
+        </div>
+        <div class="switch-group">
+          <span class="switch-label">RS D</span>
+          <div class="toggle" id="tog-rs-0-1" onclick="toggleRS(0,1)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-0-0" title="Storing VS-prim"></div>
+        <div class="switch-group">
+          <span class="switch-label" style="color:#c33;">VS PRIM</span>
+          <div class="toggle vs" id="tog-vs-0-0" onclick="toggleVS(0,0)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="trafo-icon">T1<br>50/10</div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-0-1" title="Storing VS-sec"></div>
+        <div class="switch-group">
+          <span class="switch-label" style="color:#c33;">VS SEC</span>
+          <div class="toggle vs" id="tog-vs-0-1" onclick="toggleVS(0,1)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="component-row">
+        <div class="switch-group">
+          <span class="switch-label">RS 1</span>
+          <div class="toggle" id="tog-rs-0-2" onclick="toggleRS(0,2)"><div class="knob"></div></div>
+        </div>
+        <div class="switch-group">
+          <span class="switch-label">RS 2</span>
+          <div class="toggle" id="tog-rs-0-3" onclick="toggleRS(0,3)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="veld-label-sec">Veld 11</div>
+    </div>
+
+    <!-- Trafo 2 -->
+    <div class="veld veld-trafo" id="box-trafo1">
+      <div class="veld-label">Veld 53</div>
+      <div class="component-row">
+        <div class="switch-group">
+          <span class="switch-label">RS C</span>
+          <div class="toggle" id="tog-rs-1-0" onclick="toggleRS(1,0)"><div class="knob"></div></div>
+        </div>
+        <div class="switch-group">
+          <span class="switch-label">RS D</span>
+          <div class="toggle" id="tog-rs-1-1" onclick="toggleRS(1,1)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-1-0" title="Storing VS-prim"></div>
+        <div class="switch-group">
+          <span class="switch-label" style="color:#c33;">VS PRIM</span>
+          <div class="toggle vs" id="tog-vs-1-0" onclick="toggleVS(1,0)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="trafo-icon">T2<br>50/10</div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-1-1" title="Storing VS-sec"></div>
+        <div class="switch-group">
+          <span class="switch-label" style="color:#c33;">VS SEC</span>
+          <div class="toggle vs" id="tog-vs-1-1" onclick="toggleVS(1,1)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="component-row">
+        <div class="switch-group">
+          <span class="switch-label">RS 1</span>
+          <div class="toggle" id="tog-rs-1-2" onclick="toggleRS(1,2)"><div class="knob"></div></div>
+        </div>
+        <div class="switch-group">
+          <span class="switch-label">RS 2</span>
+          <div class="toggle" id="tog-rs-1-3" onclick="toggleRS(1,3)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="veld-label-sec">Veld 12</div>
+    </div>
+
+    <!-- Trafo 3 -->
+    <div class="veld veld-trafo" id="box-trafo2">
+      <div class="veld-label">Veld 54</div>
+      <div class="component-row">
+        <div class="switch-group">
+          <span class="switch-label">RS C</span>
+          <div class="toggle" id="tog-rs-2-0" onclick="toggleRS(2,0)"><div class="knob"></div></div>
+        </div>
+        <div class="switch-group">
+          <span class="switch-label">RS D</span>
+          <div class="toggle" id="tog-rs-2-1" onclick="toggleRS(2,1)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-2-0" title="Storing VS-prim"></div>
+        <div class="switch-group">
+          <span class="switch-label" style="color:#c33;">VS PRIM</span>
+          <div class="toggle vs" id="tog-vs-2-0" onclick="toggleVS(2,0)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="trafo-icon">T3<br>50/10</div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-2-1" title="Storing VS-sec"></div>
+        <div class="switch-group">
+          <span class="switch-label" style="color:#c33;">VS SEC</span>
+          <div class="toggle vs" id="tog-vs-2-1" onclick="toggleVS(2,1)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="component-row">
+        <div class="switch-group">
+          <span class="switch-label">RS 1</span>
+          <div class="toggle" id="tog-rs-2-2" onclick="toggleRS(2,2)"><div class="knob"></div></div>
+        </div>
+        <div class="switch-group">
+          <span class="switch-label">RS 2</span>
+          <div class="toggle" id="tog-rs-2-3" onclick="toggleRS(2,3)"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="veld-label-sec">Veld 14</div>
+    </div>
+
+  </div>
+
+  <!-- 10kV Rails -->
+  <div class="rail-section">
+    <div class="rail-row">
+      <div class="rail-led-group">
+        <span class="label">V13 Duinpad</span>
+        <div class="led off" id="led-v13-1"></div>
+      </div>
+      <span class="rail-label">10kV Rail 1</span>
+      <div class="rail-bar rail-1" id="rail1-bar"></div>
+      <div class="rail-led-group">
+        <span class="label">V15 Fre de Rik</span>
+        <div class="led off" id="led-v15-1"></div>
+      </div>
+      <div style="min-width:70px;"></div><!-- spacer for alignment -->
+    </div>
+    <div class="rail-row">
+      <div class="rail-led-group">
+        <span class="label">V13 Duinpad</span>
+        <div class="led off" id="led-v13-2"></div>
+      </div>
+      <span class="rail-label">10kV Rail 2</span>
+      <div class="rail-bar rail-2" id="rail2-bar"></div>
+      <div class="rail-led-group">
+        <span class="label">V15 Fre de Rik</span>
+        <div class="led off" id="led-v15-2"></div>
+      </div>
+      <div class="koppel-box" style="min-width:70px; padding:4px;">
+        <span style="font-size:0.6em; font-weight:bold;">V16</span>
+        <span style="font-size:0.55em;">Koppel 2</span>
+        <div class="toggle vs" id="tog-koppelSec" onclick="toggleKoppel('sec')"><div class="knob"></div></div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /panel -->
+
+<!-- Controls -->
+<div class="controls-bar">
+  <div class="buzzer-indicator">
+    <div id="buzzer-led" class="led off"></div>
+    <span id="buzzer-text" style="min-width:30px;">UIT</span>
+    <span style="font-size:0.7em; color:#888;">BUZZER</span>
+    <span id="buzzer-type-text" style="font-size:0.6em; color:#666;"></span>
+    <span id="audio-hint" style="font-size:0.6em; color:#666; font-weight:normal;">(klik ergens voor geluid)</span>
+  </div>
+  <button onclick="resetStartScenario()" style="padding:6px 12px; cursor:pointer; font-size:0.8em; border-radius:4px; border:1px solid #666;">Reset naar startpositie</button>
+</div>
+
+<!-- Serial monitor -->
+<div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+  <span style="font-size:0.8em; color:#888;">Serial Monitor</span>
+  <button onclick="document.getElementById('serial').textContent=''" style="font-size:0.7em; padding:2px 8px; cursor:pointer;">Clear</button>
+</div>
+<div class="serial-monitor" id="serial"></div>
+
+</div><!-- /container -->
+
+<script>
+// =================================================================
+//  CONSTANTEN
+// =================================================================
+
+const BUZZER_DUUR = 1200;
+const BLINK_INTERVAL = 500;
+const KOPPELING_MAX_MS = 60000;
+
+// Nodes in het netwerk
+const RAIL_50C = 0, RAIL_50D = 1;
+const TRAFO_PRIM_0 = 2, TRAFO_PRIM_1 = 3, TRAFO_PRIM_2 = 4;
+const TRAFO_SEC_0 = 5, TRAFO_SEC_1 = 6, TRAFO_SEC_2 = 7;
+const RAIL_10_1 = 8, RAIL_10_2 = 9;
+const NUM_NODES = 10;
+
+const NODE_NAMEN = [
+  '50kV-C', '50kV-D',
+  'Prim-T1', 'Prim-T2', 'Prim-T3',
+  'Sec-T1', 'Sec-T2', 'Sec-T3',
+  '10kV-1', '10kV-2'
+];
+
+const VELD_NAMEN = ['Veld 51', 'Veld 53', 'Veld 54'];
+const VELD_NAMEN_SEC = ['Veld 11', 'Veld 12', 'Veld 14'];
+
+// RS labels: domain naming (C/D for 50kV, 1/2 for 10kV)
+const RS_LABELS = ['RS C', 'RS D', 'RS 1', 'RS 2'];
+
+// Buzzer frequenties per foutsoort
+const BUZZER_FREQ = {
+  1: 880,   // SCHAKELFOUT: hoog, urgent
+  2: 440,   // UITVAL: middentoon
+  3: 220,   // RAILKOPPELING: laag
+  4: 330    // VERKEERDE VOLGORDE: zacht, kort
+};
+const BUZZER_PULSE = {
+  1: 6,     // snelle puls
+  2: 2,     // medium puls
+  3: 1,     // langzame puls
+  4: 3      // medium puls
+};
+const BUZZER_DUUR_PER_TYPE = {
+  1: BUZZER_DUUR,
+  2: BUZZER_DUUR,
+  3: BUZZER_DUUR,
+  4: 600     // korter voor waarschuwing
+};
+
+// =================================================================
+//  STATE
+// =================================================================
+
+const state = {
+  // Scheiders [veld][0=A(railC), 1=B(railD), 2=C(rail1), 3=D(rail2)]
+  rs: [
+    [false, true, false, true],   // T1: C=UIT, D=IN, 1=UIT, 2=IN
+    [true, false, true, false],   // T2: C=IN, D=UIT, 1=IN, 2=UIT
+    [false, true, false, true],   // T3: C=UIT, D=IN, 1=UIT, 2=IN
+  ],
+  // VS [veld][0=prim, 1=sec]
+  vs: [
+    [true, true],     // T1: IN, IN
+    [true, true],     // T2: IN, IN
+    [false, false],   // T3: UIT, UIT
+  ],
+  koppelPrim: true,
+  koppelSec: false,
+  scenario: 0,
+
+  // Buzzer per foutsoort (tegelijk mogelijk)
+  buzzerTot: { 1: 0, 2: 0, 3: 0, 4: 0 },
+
+  // Railkoppeling timers (per veld, [0=50kV AB, 1=10kV CD])
+  koppelingStart: [[0,0],[0,0],[0,0]],
+  koppelingAlarm: [[false,false],[false,false],[false,false]],
+};
+
+// Vorige toestand voor edge-detectie
+let prevRs = [[false,true,false,true],[true,false,true,false],[false,true,false,true]];
+let prevVs = [[true,true],[true,true],[false,false]];
+let prevSpanning = new Array(NUM_NODES).fill(false);
+
+// Spanning array
+let spanning = new Array(NUM_NODES).fill(false);
+
+// =================================================================
+//  AUDIO (Web Audio API - 3 toonhoogtes)
+// =================================================================
+
+let audioCtx = null;
+let buzzerOscillators = {};
+let buzzerMute = null;
+let audioReady = false;
+let currentBuzzerType = 0;
+
+function createDistortionCurve(amount) {
+  const n = 44100, curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i * 2) / n - 1;
+    curve[i] = ((3 + amount) * x * 20 * Math.PI / 180) / (Math.PI + amount * Math.abs(x));
+  }
+  return curve;
+}
+
+document.addEventListener('click', function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  const distortion = audioCtx.createWaveShaper();
+  distortion.curve = createDistortionCurve(40);
+
+  const masterGain = audioCtx.createGain();
+  masterGain.gain.value = 0.06;
+
+  buzzerMute = audioCtx.createGain();
+  buzzerMute.gain.value = 0;
+
+  distortion.connect(masterGain);
+  masterGain.connect(buzzerMute);
+  buzzerMute.connect(audioCtx.destination);
+
+  // Maak oscillator + LFO per foutsoort
+  for (const type of [1, 2, 3, 4]) {
+    const osc = audioCtx.createOscillator();
+    osc.type = 'square';
+    osc.frequency.value = BUZZER_FREQ[type];
+
+    const lfo = audioCtx.createOscillator();
+    lfo.type = 'square';
+    lfo.frequency.value = BUZZER_PULSE[type];
+
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.value = 0.04;
+
+    const typeGain = audioCtx.createGain();
+    typeGain.gain.value = 0; // standaard uit
+
+    osc.connect(typeGain);
+    typeGain.connect(distortion);
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(typeGain.gain);
+
+    osc.start();
+    lfo.start();
+
+    buzzerOscillators[type] = { typeGain };
+  }
+
+  audioReady = true;
+  const hint = document.getElementById('audio-hint');
+  if (hint) hint.style.display = 'none';
+}, { once: true });
+
+function updateBuzzerAudio(now) {
+  if (!audioReady) return;
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  let anyActive = false;
+  for (const t of [1, 2, 3, 4]) {
+    const active = (state.buzzerTot[t] - now) > 0;
+    if (active) anyActive = true;
+    buzzerOscillators[t].typeGain.gain.setTargetAtTime(active ? 1 : 0, audioCtx.currentTime, 0.005);
+  }
+  buzzerMute.gain.setTargetAtTime(anyActive ? 1 : 0, audioCtx.currentTime, 0.005);
+}
+
+// =================================================================
+//  SERIAL OUTPUT
+// =================================================================
+
+function serialPrint(text, cssClass) {
+  const el = document.getElementById('serial');
+  if (cssClass) {
+    const span = document.createElement('span');
+    span.className = cssClass;
+    span.textContent = text;
+    el.appendChild(span);
+  } else {
+    el.appendChild(document.createTextNode(text));
+  }
+  el.scrollTop = el.scrollHeight;
+}
+
+function serialPrintln(text, cssClass) {
+  serialPrint(text + '\n', cssClass);
+}
+
+// =================================================================
+//  SPANNING PROPAGATIE
+// =================================================================
+
+function propageer(s, a, b) {
+  if (s[a] && !s[b]) { s[b] = true; return true; }
+  if (s[b] && !s[a]) { s[a] = true; return true; }
+  return false;
+}
+
+function berekenSpanning(skipVeld, skipRs) {
+  const s = new Array(NUM_NODES).fill(false);
+  s[RAIL_50D] = true;
+
+  let gewijzigd = true;
+  while (gewijzigd) {
+    gewijzigd = false;
+
+    if (state.koppelPrim)
+      gewijzigd |= propageer(s, RAIL_50C, RAIL_50D);
+
+    for (let v = 0; v < 3; v++) {
+      const prim = TRAFO_PRIM_0 + v;
+      const sec  = TRAFO_SEC_0 + v;
+
+      if (state.rs[v][0] && !(v === skipVeld && skipRs === 0))
+        gewijzigd |= propageer(s, RAIL_50C, prim);
+      if (state.rs[v][1] && !(v === skipVeld && skipRs === 1))
+        gewijzigd |= propageer(s, RAIL_50D, prim);
+
+      // VS-prim EN VS-sec moeten beide dicht zijn
+      if (state.vs[v][0] && state.vs[v][1])
+        gewijzigd |= propageer(s, prim, sec);
+
+      if (state.rs[v][2] && !(v === skipVeld && skipRs === 2))
+        gewijzigd |= propageer(s, sec, RAIL_10_1);
+      if (state.rs[v][3] && !(v === skipVeld && skipRs === 3))
+        gewijzigd |= propageer(s, sec, RAIL_10_2);
+    }
+
+    if (state.koppelSec)
+      gewijzigd |= propageer(s, RAIL_10_1, RAIL_10_2);
+  }
+  return s;
+}
+
+// =================================================================
+//  FOUTDETECTIE
+// =================================================================
+
+function meldFout(soort, veldNaam, bericht) {
+  const now = Date.now();
+  state.buzzerTot[soort] = now + (BUZZER_DUUR_PER_TYPE[soort] || BUZZER_DUUR);
+
+  const cssClass = `fout-${soort}`;
+  const prefix = soort === 1 ? 'SCHAKELFOUT' : soort === 2 ? 'UITVAL' : 'RAILKOPPELING';
+  serialPrintln(`!!! FOUT SOORT ${soort} (${prefix}) | ${veldNaam} | ${bericht}`, cssClass);
+}
+
+function rsNodes(veld, rsIdx) {
+  switch (rsIdx) {
+    case 0: return [RAIL_50C, TRAFO_PRIM_0 + veld];
+    case 1: return [RAIL_50D, TRAFO_PRIM_0 + veld];
+    case 2: return [TRAFO_SEC_0 + veld, RAIL_10_1];
+    case 3: return [TRAFO_SEC_0 + veld, RAIL_10_2];
+  }
+}
+
+// Soort 1: SCHAKELFOUT
+function checkSchakelfout(veld, rsIdx) {
+  const [nodeA, nodeB] = rsNodes(veld, rsIdx);
+
+  // Bereken spanning ZONDER deze RS
+  const s = berekenSpanning(veld, rsIdx);
+
+  // Beide kanten gelijk? -> veilig
+  if (s[nodeA] === s[nodeB]) return;
+
+  // Potentiaalverschil. Is de VS in het circuit dicht?
+  const vsDicht = (rsIdx <= 1) ? state.vs[veld][0] : state.vs[veld][1];
+
+  if (vsDicht) {
+    meldFout(1, VELD_NAMEN[veld],
+      `${RS_LABELS[rsIdx]} geschakeld onder belasting! (${NODE_NAMEN[nodeA]}=${s[nodeA]?'spanning':'geen'}, ${NODE_NAMEN[nodeB]}=${s[nodeB]?'spanning':'geen'}, VS=${vsDicht?'DICHT':'OPEN'})`);
+  }
+}
+
+// Soort 2: UITVAL
+function checkUitval() {
+  if (prevSpanning[RAIL_10_1] && !spanning[RAIL_10_1])
+    meldFout(2, 'SYSTEEM', '10kV Rail 1 heeft geen spanning meer! Klanten zonder stroom.');
+  if (prevSpanning[RAIL_10_2] && !spanning[RAIL_10_2])
+    meldFout(2, 'SYSTEEM', '10kV Rail 2 heeft geen spanning meer! Klanten zonder stroom.');
+}
+
+// Soort 3: ONJUISTE RAILKOPPELING
+function checkRailkoppeling(now) {
+  for (let v = 0; v < 3; v++) {
+    // 50kV zijde: RS-A(C) + RS-B(D)
+    checkKoppelingPair(v, 0, state.rs[v][0] && state.rs[v][1], 'RS C + RS D', now);
+    // 10kV zijde: RS-C(1) + RS-D(2)
+    checkKoppelingPair(v, 1, state.rs[v][2] && state.rs[v][3], 'RS 1 + RS 2', now);
+  }
+}
+
+function checkKoppelingPair(veld, pairIdx, beideDicht, label, now) {
+  if (beideDicht) {
+    if (state.koppelingStart[veld][pairIdx] === 0) {
+      state.koppelingStart[veld][pairIdx] = now;
+      state.koppelingAlarm[veld][pairIdx] = false;
+    }
+    const elapsed = now - state.koppelingStart[veld][pairIdx];
+    if (!state.koppelingAlarm[veld][pairIdx] && elapsed >= KOPPELING_MAX_MS) {
+      meldFout(3, VELD_NAMEN[veld],
+        `ONJUISTE RAILKOPPELING: ${label} >60s beide dicht! (onbeveiligd koppelveld)`);
+      state.koppelingAlarm[veld][pairIdx] = true;
+    }
+    // Continu buzzer zolang alarm actief
+    if (state.koppelingAlarm[veld][pairIdx]) {
+      state.buzzerTot[3] = now + BUZZER_DUUR;
+    }
+  } else {
+    state.koppelingStart[veld][pairIdx] = 0;
+    state.koppelingAlarm[veld][pairIdx] = false;
+  }
+}
+
+// =================================================================
+//  TOGGLE HANDLERS
+// =================================================================
+
+function toggleRS(veld, rsIdx) {
+  state.rs[veld][rsIdx] = !state.rs[veld][rsIdx];
+  updateToggleVisual(`tog-rs-${veld}-${rsIdx}`, state.rs[veld][rsIdx]);
+  runLoop();
+}
+
+function toggleVS(veld, vsIdx) {
+  // Scenario 2: VS-prim van trafo 2 is stuk - schakelt niet
+  if (state.scenario === 2 && veld === 1 && vsIdx === 0) {
+    // Toggle beweegt visueel maar state verandert NIET
+    const tog = document.getElementById(`tog-vs-${veld}-${vsIdx}`);
+    // Laat even zien dat het "probeert" maar terugvalt
+    tog.classList.toggle('on');
+    serialPrintln('VS-PRIM Veld 53 in storing - schakelt NIET! VS blijft IN.', 'fout-2');
+    setTimeout(() => {
+      // Visueel terugzetten naar werkelijke staat (IN)
+      tog.classList.add('on');
+    }, 300);
+    return;
+  }
+
+  state.vs[veld][vsIdx] = !state.vs[veld][vsIdx];
+  updateToggleVisual(`tog-vs-${veld}-${vsIdx}`, state.vs[veld][vsIdx]);
+  runLoop();
+}
+
+function toggleKoppel(type) {
+  if (type === 'prim') {
+    state.koppelPrim = !state.koppelPrim;
+    updateToggleVisual('tog-koppelPrim', state.koppelPrim);
+  } else {
+    state.koppelSec = !state.koppelSec;
+    updateToggleVisual('tog-koppelSec', state.koppelSec);
+  }
+  runLoop();
+}
+
+function updateToggleVisual(id, on) {
+  const el = document.getElementById(id);
+  if (el) el.classList.toggle('on', on);
+}
+
+// =================================================================
+//  SCENARIO
+// =================================================================
+
+function setScenario(nr) {
+  state.scenario = nr;
+  // Update buttons
+  document.querySelectorAll('.scenario-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', i === nr);
+  });
+
+  if (nr === 2) {
+    // VS-prim trafo 2 moet IN zijn voor het scenario
+    state.vs[1][0] = true;
+    updateToggleVisual('tog-vs-1-0', true);
+    serialPrintln('SCENARIO 2: VS-prim Veld 53 is in storing (schakelt niet meer).', 'fout-2');
+  }
+
+  runLoop();
+}
+
+// =================================================================
+//  MAIN LOOP
+// =================================================================
+
+function runLoop() {
+  const now = Date.now();
+
+  // --- Schakelfout detectie (soort 1) ---
+  for (let v = 0; v < 3; v++) {
+    for (let r = 0; r < 4; r++) {
+      if (state.rs[v][r] !== prevRs[v][r]) {
+        checkSchakelfout(v, r);
+        serialPrintln(`${VELD_NAMEN[v]} ${RS_LABELS[r]} -> ${state.rs[v][r] ? 'DICHT' : 'OPEN'}`);
+      }
+    }
+  }
+
+  // --- Spanning propagatie ---
+  prevSpanning = [...spanning];
+  spanning = berekenSpanning();
+
+  // --- Uitval detectie (soort 2) ---
+  checkUitval();
+
+  // --- Railkoppeling detectie (soort 3) ---
+  checkRailkoppeling(now);
+
+  // --- Verkeerde schakelvolgorde detectie (soort 4) ---
+  // Uitschakelen: eerst VS-sec UIT, dan VS-prim UIT
+  // Inschakelen: eerst VS-prim IN, dan VS-sec IN
+  for (let v = 0; v < 3; v++) {
+    // VS-prim gaat UIT terwijl VS-sec nog IN staat → verkeerde volgorde
+    if (prevVs[v][0] && !state.vs[v][0] && state.vs[v][1]) {
+      meldFout(4, VELD_NAMEN[v],
+        'Verkeerde volgorde: VS-prim UIT geschakeld terwijl VS-sec nog IN staat. Eerst VS-sec UIT, dan VS-prim.');
+    }
+    // VS-sec gaat IN terwijl VS-prim nog UIT staat → verkeerde volgorde
+    if (!prevVs[v][1] && state.vs[v][1] && !state.vs[v][0]) {
+      meldFout(4, VELD_NAMEN[v],
+        'Verkeerde volgorde: VS-sec IN geschakeld terwijl VS-prim nog UIT staat. Eerst VS-prim IN, dan VS-sec.');
+    }
+  }
+
+  // --- Opslaan vorige toestand ---
+  prevRs = state.rs.map(v => [...v]);
+  prevVs = state.vs.map(v => [...v]);
+
+  // --- UI update ---
+  updateUI(now);
+}
+
+// =================================================================
+//  UI UPDATE
+// =================================================================
+
+function setLed(id, cls) {
+  const el = document.getElementById(id);
+  if (el) el.className = 'led ' + cls;
+}
+
+function updateUI(now) {
+  // Rail bars - glow als spanning
+  document.getElementById('railC-bar').classList.toggle('powered', spanning[RAIL_50C]);
+  document.getElementById('railD-bar').classList.toggle('powered', spanning[RAIL_50D]);
+  document.getElementById('rail1-bar').classList.toggle('powered', spanning[RAIL_10_1]);
+  document.getElementById('rail2-bar').classList.toggle('powered', spanning[RAIL_10_2]);
+
+  // V52 LEDs (50kV rails)
+  setLed('led-v52c', spanning[RAIL_50C] ? 'red' : 'red-dim');
+  setLed('led-v52d', spanning[RAIL_50D] ? 'red' : 'red-dim');
+
+  // V13 Duinpad LEDs (10kV rails, links)
+  setLed('led-v13-1', spanning[RAIL_10_1] ? 'red' : 'red-dim');
+  setLed('led-v13-2', spanning[RAIL_10_2] ? 'red' : 'red-dim');
+
+  // V15 Fre de Rik LEDs (10kV rails, rechts)
+  setLed('led-v15-1', spanning[RAIL_10_1] ? 'red' : 'red-dim');
+  setLed('led-v15-2', spanning[RAIL_10_2] ? 'red' : 'red-dim');
+
+  // Storing LEDs (naast VS'en)
+  const blinkOn = (Math.floor(now / BLINK_INTERVAL) % 2) === 0;
+
+  for (let v = 0; v < 3; v++) {
+    for (let vs = 0; vs < 2; vs++) {
+      let ledState = 'off';
+
+      if (state.scenario === 1 && v === 0) {
+        // Scenario 1: beide VS LEDs van trafo 1 branden (trafo stuk)
+        ledState = blinkOn ? 'orange' : 'orange-dim';
+      } else if (state.scenario === 2 && v === 1 && vs === 0) {
+        // Scenario 2: alleen VS-prim LED van trafo 2 brandt (VS stuk)
+        ledState = blinkOn ? 'orange' : 'orange-dim';
+      }
+
+      setLed(`led-stor-${v}-${vs}`, ledState);
+    }
+  }
+
+  // VS toggle storing indicator
+  for (let v = 0; v < 3; v++) {
+    for (let vs = 0; vs < 2; vs++) {
+      const tog = document.getElementById(`tog-vs-${v}-${vs}`);
+      if (!tog) continue;
+      const isStoring = (state.scenario === 2 && v === 1 && vs === 0);
+      tog.classList.toggle('storing', isStoring);
+    }
+  }
+
+  // Buzzer — meerdere tonen tegelijk mogelijk
+  const labels = { 1: 'SCHAKELFOUT', 2: 'UITVAL', 3: 'RAILKOPPELING', 4: 'VOLGORDE' };
+  const colors = { 1: '#f44', 2: '#fa0', 3: '#ff0', 4: '#aaf' };
+  const actieveFouten = [1, 2, 3, 4].filter(t => (state.buzzerTot[t] - now) > 0);
+  const buzzerAan = actieveFouten.length > 0;
+
+  setLed('buzzer-led', buzzerAan ? 'red' : 'off');
+  document.getElementById('buzzer-text').textContent = buzzerAan ? 'AAN' : 'UIT';
+
+  const typeText = document.getElementById('buzzer-type-text');
+  if (buzzerAan) {
+    typeText.textContent = '(' + actieveFouten.map(t => labels[t]).join(' + ') + ')';
+    typeText.style.color = colors[actieveFouten[0]]; // kleur van hoogste prio
+  } else {
+    typeText.textContent = '';
+  }
+
+  updateBuzzerAudio(now);
+
+  // Railkoppeling countdown weergave
+  for (let v = 0; v < 3; v++) {
+    for (let p = 0; p < 2; p++) {
+      if (state.koppelingStart[v][p] > 0 && !state.koppelingAlarm[v][p]) {
+        const elapsed = (now - state.koppelingStart[v][p]) / 1000;
+        if (elapsed > 5) {
+          const remaining = Math.ceil(60 - elapsed);
+          // Log elke 10 seconden
+          if (Math.floor(elapsed) % 10 === 0 && Math.floor(elapsed) !== Math.floor(elapsed - 0.1)) {
+            const label = p === 0 ? 'RS C+D (50kV)' : 'RS 1+2 (10kV)';
+            serialPrintln(`WAARSCHUWING: ${VELD_NAMEN[v]} ${label} beide dicht: ${Math.floor(elapsed)}s (max 60s)`);
+          }
+        }
+      }
+    }
+  }
+}
+
+// =================================================================
+//  RESET
+// =================================================================
+
+function resetStartScenario() {
+  // Reset naar opgegeven startscenario
+  state.rs = [
+    [false, true, false, true],
+    [true, false, true, false],
+    [false, true, false, true],
+  ];
+  state.vs = [
+    [true, true],
+    [true, true],
+    [false, false],
+  ];
+  state.koppelPrim = true;
+  state.koppelSec = false;
+  state.buzzerTot = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  state.koppelingStart = [[0,0],[0,0],[0,0]];
+  state.koppelingAlarm = [[false,false],[false,false],[false,false]];
+
+  // Sync prev state
+  prevRs = state.rs.map(v => [...v]);
+  prevVs = state.vs.map(v => [...v]);
+
+  // Update alle toggles
+  for (let v = 0; v < 3; v++) {
+    for (let r = 0; r < 4; r++)
+      updateToggleVisual(`tog-rs-${v}-${r}`, state.rs[v][r]);
+    for (let vs = 0; vs < 2; vs++)
+      updateToggleVisual(`tog-vs-${v}-${vs}`, state.vs[v][vs]);
+  }
+  updateToggleVisual('tog-koppelPrim', state.koppelPrim);
+  updateToggleVisual('tog-koppelSec', state.koppelSec);
+
+  // Bereken initieel spanning
+  spanning = berekenSpanning();
+  prevSpanning = [...spanning];
+
+  serialPrintln('=== RESET naar startpositie ===');
+  runLoop();
+}
+
+// =================================================================
+//  INIT
+// =================================================================
+
+// Zet initieel alle toggles juist
+function initToggles() {
+  for (let v = 0; v < 3; v++) {
+    for (let r = 0; r < 4; r++)
+      updateToggleVisual(`tog-rs-${v}-${r}`, state.rs[v][r]);
+    for (let vs = 0; vs < 2; vs++)
+      updateToggleVisual(`tog-vs-${v}-${vs}`, state.vs[v][vs]);
+  }
+  updateToggleVisual('tog-koppelPrim', state.koppelPrim);
+  updateToggleVisual('tog-koppelSec', state.koppelSec);
+}
+
+initToggles();
+
+// Bereken initieel spanning
+spanning = berekenSpanning();
+prevSpanning = [...spanning];
+prevRs = state.rs.map(v => [...v]);
+
+// Initial UI render
+runLoop();
+
+// Timer voor blink + buzzer latch + railkoppeling countdown
+setInterval(() => {
+  const now = Date.now();
+  // Check railkoppeling timers
+  checkRailkoppeling(now);
+  updateUI(now);
+}, 200);
+
+serialPrintln('Schakelbox Simulator V6.0 - Power Flow Model');
+serialPrintln('Foutsoorten: 1=SCHAKELFOUT (hoge toon), 2=UITVAL (midden), 3=RAILKOPPELING (laag), 4=VOLGORDE (kort)');
+serialPrintln('Kies een spelscenario bovenin. Klik op schakelaars om te bedienen.');
+serialPrintln('='.repeat(70));
+</script>
+
+</body>
+</html>

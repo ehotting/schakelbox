@@ -1,0 +1,802 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Schakelbox Simulator V7 - Power Flow + Live Pinout</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
+
+/* ===== SPLIT LAYOUT ===== */
+.split { display: flex; gap: 8px; padding: 4px 8px; height: calc(100vh - 32px); }
+.left-pane { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.right-pane { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+
+/* ===== LEFT: SIMULATOR (compact) ===== */
+.panel { background: #c8c8d0; border: 2px solid #888; border-radius: 6px; padding: 8px; color: #222; }
+.rail-section { margin: 2px 0; }
+.rail-row { display: flex; align-items: center; gap: 4px; margin: 1px 0; }
+.rail-label { font-size: 0.6em; font-weight: bold; min-width: 60px; white-space: nowrap; }
+.rail-bar { height: 6px; border-radius: 3px; flex: 1; transition: box-shadow 0.3s; }
+.rail-pwr { margin-right: 3px; flex-shrink: 0; }
+.jct { width: 8px; height: 8px; border-radius: 50%; border: 1px solid #444; flex-shrink: 0; transition: all 0.2s; }
+.jct.on { background: #ff6; box-shadow: 0 0 5px 1px rgba(255,255,0,0.8); border-color: #cc0; }
+.jct.off { background: #555; border-color: #444; }
+.wijk-marker { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; gap: 0; }
+.wijk-marker .led { width: 8px; height: 8px; }
+.wijk-marker .wlabel { font-size: 0.38em; color: #666; font-weight: bold; white-space: nowrap; line-height: 1; }
+.rail-c { background: #c33; } .rail-d { background: #a22; }
+.rail-1 { background: #33c; } .rail-2 { background: #22a; }
+.rail-bar.powered { box-shadow: 0 0 8px 2px rgba(255,255,0,0.6); }
+.rail-led-group { display: flex; flex-direction: column; align-items: center; gap: 0; min-width: 42px; }
+.rail-led-group .label { font-size: 0.45em; color: #555; font-weight: bold; white-space: nowrap; }
+.trafo-row { display: flex; gap: 4px; margin: 4px 0; }
+.veld { background: #b0b0c0; border: 1px solid #888; border-radius: 4px; padding: 4px 3px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.veld-trafo { flex: 1; min-width: 100px; }
+.veld-label { font-weight: bold; font-size: 0.6em; color: #333; }
+.veld-label-sec { font-size: 0.55em; color: #666; }
+.koppel-box { background: #a8a8b8; border: 1px solid #888; border-radius: 4px; padding: 4px; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 52px; }
+.trafo-icon { width: 34px; height: 34px; background: #4466aa; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.5em; color: white; font-weight: bold; }
+.component-row { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; }
+.switch-group { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+.switch-label { font-size: 0.5em; color: #555; white-space: nowrap; font-weight: bold; }
+.vs-row { display: flex; align-items: center; gap: 4px; justify-content: center; width: 100%; }
+
+.toggle { width: 28px; height: 16px; background: #666; border-radius: 8px; position: relative; cursor: pointer; transition: background 0.2s; border: 1px solid #444; }
+.toggle.on { background: #4a4; }
+.toggle .knob { width: 12px; height: 12px; background: #ddd; border-radius: 50%; position: absolute; top: 1px; left: 1px; transition: left 0.15s; border: 1px solid #999; }
+.toggle.on .knob { left: 13px; }
+.toggle:hover { opacity: 0.85; }
+.toggle.vs { width: 32px; height: 18px; border-radius: 9px; }
+.toggle.vs .knob { width: 14px; height: 14px; top: 1px; left: 1px; }
+.toggle.vs.on .knob { left: 15px; }
+.toggle.vs.on { background: #c44; }
+.toggle.vs.storing { border: 2px solid #f80; opacity: 0.8; }
+
+.led { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #333; transition: all 0.15s; flex-shrink: 0; }
+.led.off { background: radial-gradient(circle at 35% 35%, #444, #1a1a1a); }
+.led.red { background: radial-gradient(circle at 35% 35%, #ff5555, #cc0000); box-shadow: 0 0 4px 1px rgba(255,0,0,0.8); }
+.led.red-dim { background: radial-gradient(circle at 35% 35%, #662222, #330000); }
+.led.orange { background: radial-gradient(circle at 35% 35%, #ffaa33, #cc6600); box-shadow: 0 0 4px 1px rgba(255,160,0,0.8); }
+.led.orange-dim { background: radial-gradient(circle at 35% 35%, #553300, #331a00); }
+
+.controls-bar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.scenario-bar { display: flex; gap: 4px; align-items: center; flex-wrap: wrap; }
+.scenario-btn { padding: 3px 8px; border: 1px solid #555; border-radius: 3px; cursor: pointer; font-size: 0.6em; font-weight: bold; background: #888; color: #222; }
+.scenario-btn.active { background: #f80; color: white; border-color: #fa0; }
+.buzzer-indicator { display: flex; align-items: center; gap: 4px; padding: 4px 8px; background: #1a1a1a; border: 1px solid #444; border-radius: 4px; font-size: 0.7em; font-weight: bold; }
+.buzzer-indicator .led { width: 14px; height: 14px; }
+.serial-monitor { background: #111; color: #0f0; font-family: 'Courier New', monospace; font-size: 0.6em; padding: 4px; border-radius: 4px; flex: 1; min-height: 60px; overflow-y: auto; white-space: pre-wrap; line-height: 1.3; }
+.fout-1 { color: #f44; font-weight: bold; } .fout-2 { color: #fa0; } .fout-3 { color: #ff0; } .fout-4 { color: #aaf; font-style: italic; } .fout-5 { color: #f4f; font-weight: bold; }
+
+/* Sense buttons */
+/* Aarding */
+.aard-row { display:flex; align-items:center; gap:3px; width:100%; justify-content:flex-end; }
+.span-dot { width:7px; height:7px; border-radius:50%; border:1px solid #555; flex-shrink:0; }
+.span-dot.live { background:#f44; box-shadow:0 0 4px rgba(255,0,0,0.8); border-color:#f44; }
+.span-dot.safe { background:#4a4; box-shadow:0 0 3px rgba(0,255,0,0.5); border-color:#4a4; }
+.span-dot.dead { background:#333; }
+.span-dot.earthed { outline:2px solid #4a4; outline-offset:1px; }
+.aard-btn { width:14px; height:14px; border-radius:2px; border:1px solid #555; cursor:pointer; font-size:0.4em; line-height:14px; text-align:center; background:#333; color:#888; }
+.aard-btn.connected { background:#4a4; color:#fff; border-color:#6c6; }
+.aard-btn:hover { opacity:0.8; }
+.aard-sym { font-size:0.5em; color:#888; }
+
+.sense-btn { padding:2px 6px; border:1px solid #555; border-radius:3px; cursor:pointer; font-size:0.55em; font-weight:bold; background:#333; color:#888; transition:all 0.2s; }
+.sense-btn.connected { background:#243; color:#4f4; border-color:#4a4; }
+.sense-btn.fout { background:#422; color:#f44; border-color:#a33; }
+
+/* ===== RIGHT: ARDUINO PINOUT ===== */
+.pinout-title { font-size: 0.8em; color: #888; text-align: center; font-weight: bold; }
+.arduino-box { position: relative; flex: 1; min-height: 620px; }
+.board { position: absolute; left: 50%; top: 10px; width: 200px; height: 520px; transform: translateX(-50%); background: linear-gradient(135deg, #1a8a6a, #14705a); border: 2px solid #0d5040; border-radius: 7px; box-shadow: 0 3px 14px rgba(0,0,0,0.4); }
+.board-inner { position: absolute; top: 45%; left: 50%; transform: translate(-50%,-50%); font-size: 1.1em; color: rgba(0,0,0,0.25); text-align: center; font-weight: bold; line-height: 1.6; }
+.board .usb { position: absolute; right: 10px; top: -6px; width: 28px; height: 20px; background: #999; border-radius: 2px 2px 0 0; font-size: 0.35em; color: #333; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+.board .pwr { position: absolute; left: 10px; top: -5px; width: 24px; height: 16px; background: #222; border: 1px solid #555; border-radius: 2px 2px 0 0; font-size: 0.3em; color: #888; display: flex; align-items: center; justify-content: center; }
+
+.pin-grp { position: absolute; display: flex; flex-direction: column; }
+.pin-h { display: flex; align-items: center; height: 16px; gap: 2px; }
+.pd { width: 7px; height: 7px; border-radius: 50%; border: 1px solid #555; transition: all 0.2s; flex-shrink: 0; }
+.pd.hi-out { background: #ff6; box-shadow: 0 0 4px 1px rgba(255,255,0,0.7); border-color: #ff6; }
+.pd.hi-in { background: #4af; box-shadow: 0 0 4px 1px rgba(60,160,255,0.7); border-color: #4af; }
+.pd.hi-buz { background: #f6a; box-shadow: 0 0 5px 2px rgba(255,100,160,0.8); border-color: #f6a; }
+.pd.lo { background: #333; border-color: #555; }
+.pn { font-size: 0.5em; color: #888; width: 14px; text-align: center; }
+.pt { font-size: 0.48em; font-weight: bold; padding: 0 3px; border-radius: 2px; white-space: nowrap; }
+.pw { height: 2px; width: 14px; }
+.pg { font-size: 0.5em; font-weight: bold; margin: 2px 0 1px; padding: 1px 3px; border-radius: 2px; }
+
+.to { background: #1a3a1a; color: #5d5; } .ti { background: #1a2a4a; color: #5af; }
+.tb { background: #3a1a2a; color: #f6a; } .tp { background: #3a1a1a; color: #f88; }
+.tn { background: #222; color: #555; } .tf { background: #1a1a1a; color: #444; }
+.tg { background: #222; color: #999; } .ta { background: #3a2a1a; color: #fa6; }
+.wo { background: #4a4; } .wi { background: #48f; } .wb { background: #f6a; }
+.pv .pvw.wi { background: #48f; }
+.wp { background: #f44; } .wn { background: #444; } .wf { background: #333; }
+.wg { background: #888; } .wa { background: #fa0; }
+
+.bottom-pins { position: absolute; top: 540px; left: 50%; transform: translateX(-50%); }
+.brow { display: flex; gap: 0; align-items: flex-start; }
+.pv { display: flex; flex-direction: column; align-items: center; width: 26px; }
+.pv .pvw { width: 2px; height: 10px; }
+.pv .pn { line-height: 1.1; }
+.pv .pfn { font-size: 0.4em; font-weight: bold; writing-mode: vertical-lr; text-orientation: mixed; white-space: nowrap; padding: 2px 0; border-radius: 2px; margin-top: 1px; }
+
+/* Group brackets */
+.grp-bracket-h { display: flex; align-items: flex-start; margin-top: 2px; }
+.grp-bracket-h .grp-line { height: 2px; background: #48f; }
+.grp-bracket-h .grp-lbl { font-size: 0.45em; font-weight: bold; color: #48f; text-align: center; padding: 0 2px; white-space: nowrap; }
+.grp-bracket-v { position: absolute; display: flex; flex-direction: column; align-items: flex-start; }
+.grp-bracket-v .grp-line { width: 2px; }
+.grp-bracket-v .grp-lbl { font-size: 0.45em; font-weight: bold; writing-mode: vertical-lr; text-orientation: mixed; white-space: nowrap; padding: 2px 0; }
+.pv .pn { font-size: 0.42em; }
+.pvw { width: 2px; height: 10px; }
+.blab { font-size: 0.45em; font-weight: bold; color: #48f; text-align: center; border-top: 1px solid #38e; padding-top: 1px; margin-top: 2px; }
+
+.pinout-legend { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; font-size: 0.5em; color: #888; padding: 2px; }
+.pinout-legend span { display: flex; align-items: center; gap: 2px; }
+.leg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+</style>
+</head>
+<body>
+
+<h1>Schakelbox V7 — Simulator + Live Arduino Pinout</h1>
+
+<div class="split">
+
+<!-- ===== LEFT: SIMULATOR ===== -->
+<div class="left-pane">
+  <div class="scenario-bar">
+    <span style="font-size:0.6em; color:#aaa; font-weight:bold;">Scenario:</span>
+    <button class="scenario-btn active" onclick="setScenario(0)">Geen</button>
+    <button class="scenario-btn" onclick="setScenario(1)">1: T1 stuk</button>
+    <button class="scenario-btn" onclick="setScenario(2)">2: VS-p T2</button>
+    <span style="flex:1;"></span>
+    <button onclick="resetStartScenario()" style="padding:2px 6px; cursor:pointer; font-size:0.55em; border-radius:3px; border:1px solid #666;">Reset</button>
+  </div>
+
+  <div class="panel">
+    <!-- 50kV Rails -->
+    <div class="rail-section">
+      <div class="rail-row">
+        <div class="led off rail-pwr" id="led-railC-pwr"></div>
+        <span class="rail-label">Rail C</span>
+        <div class="rail-bar rail-c" id="railC-bar"></div>
+        <div class="koppel-box" style="padding:2px;">
+          <span style="font-size:0.45em; font-weight:bold;">V55 Koppel 1</span>
+          <div class="toggle vs" id="tog-koppelPrim" onclick="toggleKoppel('prim')"><div class="knob"></div></div>
+        </div>
+      </div>
+      <div class="rail-row">
+        <div class="led off rail-pwr" id="led-railD-pwr"></div>
+        <span class="rail-label">Rail D</span>
+        <div class="rail-bar rail-d" id="railD-bar"></div>
+        <div style="min-width:52px;"></div>
+      </div>
+    </div>
+
+    <div class="trafo-row" id="trafo-fields"></div>
+
+    <!-- 10kV Rails -->
+    <div class="rail-section">
+      <div class="rail-row">
+        <div class="led off rail-pwr" id="led-rail1-pwr"></div>
+        <span class="rail-label">Rail 1</span>
+        <div class="rail-bar rail-1" id="rail1-bar"></div>
+        <div style="min-width:52px;"></div>
+      </div>
+      <div class="rail-row">
+        <div class="led off rail-pwr" id="led-rail2-pwr"></div>
+        <span class="rail-label">Rail 2</span>
+        <div class="rail-bar rail-2" id="rail2-bar"></div>
+        <div class="koppel-box" style="padding:2px;">
+          <span style="font-size:0.45em; font-weight:bold;">V16 Koppel 2</span>
+          <div class="toggle vs" id="tog-koppelSec" onclick="toggleKoppel('sec')"><div class="knob"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls-bar">
+    <div class="buzzer-indicator">
+      <div id="buzzer-led" class="led off"></div>
+      <span id="buzzer-text" style="min-width:20px;">UIT</span>
+      <span style="font-size:0.55em; color:#888;">BUZZER</span>
+      <span id="buzzer-type-text" style="font-size:0.5em; color:#666;"></span>
+      <span id="audio-hint" style="font-size:0.45em; color:#666;">(klik voor geluid)</span>
+    </div>
+  </div>
+
+  <!-- Storing 1 puzzel -->
+  <div id="sense-panel" style="display:none; background:#222; border-radius:4px; padding:4px 6px;">
+    <div style="font-size:0.55em; color:#888; font-weight:bold; margin-bottom:2px;">Storing 1 — verbind A2-A7 met GND (klik om aan/uit te sluiten)</div>
+    <div style="display:flex; gap:3px; flex-wrap:wrap;" id="sense-grid"></div>
+  </div>
+  <!-- Storing 2 pair -->
+  <div id="pair-panel" style="display:none; background:#222; border-radius:4px; padding:4px 6px;">
+    <div style="font-size:0.55em; color:#888; font-weight:bold; margin-bottom:2px;">Storing 2 — verbind A8 (TX) met A9 (RX)</div>
+    <div style="display:flex; gap:3px;" id="pair-grid"></div>
+  </div>
+
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <span style="font-size:0.55em; color:#888;">Serial Monitor</span>
+    <button onclick="document.getElementById('serial').textContent=''" style="font-size:0.5em; padding:1px 5px; cursor:pointer;">Clear</button>
+  </div>
+  <div class="serial-monitor" id="serial"></div>
+</div>
+
+<!-- ===== RIGHT: ARDUINO PINOUT ===== -->
+<div class="right-pane">
+  <div class="pinout-title">Arduino Mega 2560 R3 — Live Pin Status</div>
+
+  <div class="arduino-box">
+    <div class="board">
+      <div class="usb">USB</div>
+      <div class="pwr">PWR</div>
+      <div class="board-inner">ARDUINO<br>MEGA<br>2560 R3</div>
+    </div>
+
+    <!-- ===== LEFT STRIP: [functie ←] [pin-naam] [wire → board] ===== -->
+    <div class="pin-grp" style="right:calc(50% + 106px); top:18px; align-items:flex-end;">
+      <div class="pin-h"><span class="pn">NC</span><div class="pw wn"></div></div>
+      <div class="pin-h"><span class="pn">IOREF</span><div class="pw wn"></div></div>
+      <div class="pin-h"><span class="pn">RST</span><div class="pw wn"></div></div>
+      <div class="pin-h"><span class="pn">3.3V</span><div class="pw wp"></div></div>
+      <div class="pin-h"><span class="pt tp" style="margin-right:2px;">12V voed. GND ←</span><span class="pn">5V</span><div class="pw wp"></div></div>
+      <div class="pin-h"><span class="pt tg" style="margin-right:2px;">gemeensch. GND ←</span><span class="pn">GND</span><div class="pw wg"></div></div>
+      <div class="pin-h"><span class="pn">GND</span><div class="pw wg"></div></div>
+      <div class="pin-h"><span class="pn">VIN</span><div class="pw wn"></div></div>
+      <div style="height:3px;"></div>
+      <div class="pin-h"><span class="pt ta" style="margin-right:2px;">VSENSE ←</span><span class="pn">A0</span><div class="pw wa"></div></div>
+      <!-- Storing 1: A1=fout, A2-A7=goed -->
+      <div style="display:flex; align-items:stretch;">
+        <span style="font-size:0.4em; font-weight:bold; color:#48f; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Storing 1</span>
+        <div style="width:2px; background:#48f; margin:0 3px; border-radius:1px;"></div>
+        <div style="display:flex; flex-direction:column;">
+          <div class="pin-h"><span class="pt" style="margin-right:2px; background:#422; color:#f44;">FOUT ←</span><span class="pn">A1</span><div class="pw" style="background:#f44;"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">goed ←</span><span class="pn">A2</span><div class="pw wi"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">goed ←</span><span class="pn">A3</span><div class="pw wi"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">goed ←</span><span class="pn">A4</span><div class="pw wi"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">goed ←</span><span class="pn">A5</span><div class="pw wi"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">goed ←</span><span class="pn">A6</span><div class="pw wi"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">goed ←</span><span class="pn">A7</span><div class="pw wi"></div></div>
+        </div>
+      </div>
+      <!-- Storing 2: A8=TX(GND), A9=RX -->
+      <div style="display:flex; align-items:stretch;">
+        <span style="font-size:0.4em; font-weight:bold; color:#48f; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Storing 2</span>
+        <div style="width:2px; background:#48f; margin:0 3px; border-radius:1px;"></div>
+        <div style="display:flex; flex-direction:column;">
+          <div class="pin-h"><span class="pt to" style="margin-right:2px;">TX (GND) ←</span><span class="pn">A8</span><div class="pw wo"></div></div>
+          <div class="pin-h"><span class="pt ti" style="margin-right:2px;">RX ←</span><span class="pn">A9</span><div class="pw wi"></div></div>
+        </div>
+      </div>
+      <div class="pin-h"><span class="pn">A10</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">A11</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">A12</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">A13</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">A14</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">A15</span><div class="pw wf"></div></div>
+      <div style="height:3px;"></div>
+      <div class="pin-h"><span class="pn">GND</span><div class="pw wg"></div></div>
+      <div class="pin-h"><span class="pn">D53</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">D52</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">D51</span><div class="pw wf"></div></div>
+      <div class="pin-h"><span class="pn">D50</span><div class="pw wf"></div></div>
+      <!-- Storingsknoppen -->
+      <div class="pin-h"><span class="pt ti" style="margin-right:2px;">VS-p T2 stuk ←</span><span class="pn">D49</span><div class="pd lo" id="pd-49"></div><div class="pw wi"></div></div>
+      <div class="pin-h"><span class="pt ti" style="margin-right:2px;">T1 stuk ←</span><span class="pn">D48</span><div class="pd lo" id="pd-48"></div><div class="pw wi"></div></div>
+    </div>
+
+    <!-- ===== RIGHT STRIP (top→bottom): SCL,SDA,AREF,GND, D13→D0, D14→D21, +5V, D22-D25 ===== -->
+    <!-- ===== RIGHT STRIP: 30 pins, zelfde hoogte als links ===== -->
+    <div class="pin-grp" style="left:calc(50% + 106px); top:18px;">
+      <div class="pin-h"><div class="pw wn"></div><span class="pn">SCL</span></div>
+      <div class="pin-h"><div class="pw wn"></div><span class="pn">SDA</span></div>
+      <div class="pin-h"><div class="pw wn"></div><span class="pn">AREF</span></div>
+      <div class="pin-h"><div class="pw wg"></div><span class="pn">GND</span></div>
+      <!-- Storings LEDs: D13-D8 -->
+      <div style="display:flex; align-items:stretch;">
+        <div style="display:flex; flex-direction:column;">
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D13</span><div class="pd lo" id="pd-13"></div><span class="pt to" style="margin-left:2px;">→ ST T3 sec</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D12</span><div class="pd lo" id="pd-12"></div><span class="pt to" style="margin-left:2px;">→ ST T3 prim</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D11</span><div class="pd lo" id="pd-11"></div><span class="pt to" style="margin-left:2px;">→ ST T2 sec</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D10</span><div class="pd lo" id="pd-10"></div><span class="pt to" style="margin-left:2px;">→ ST T2 prim</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D9</span><div class="pd lo" id="pd-9"></div><span class="pt to" style="margin-left:2px;">→ ST T1 sec</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D8</span><div class="pd lo" id="pd-8"></div><span class="pt to" style="margin-left:2px;">→ ST T1 prim</span></div>
+        </div>
+        <div style="width:2px; background:#4a4; margin:0 4px; border-radius:1px;"></div>
+        <span style="font-size:0.4em; font-weight:bold; color:#4a4; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Storings LEDs</span>
+      </div>
+
+      <div class="pin-h"><div class="pw wb"></div><span class="pn">D7</span><div class="pd lo" id="pd-7"></div><span class="pt tb" style="margin-left:2px;">→ Buzzer perm.</span></div>
+      <div class="pin-h"><div class="pw wb"></div><span class="pn">D6</span><div class="pd lo" id="pd-6"></div><span class="pt tb" style="margin-left:2px;">→ Buzzer kort</span></div>
+
+      <!-- Spanning LEDs: D5-D2 -->
+      <div style="display:flex; align-items:stretch;">
+        <div style="display:flex; flex-direction:column;">
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D5</span><div class="pd lo" id="pd-5"></div><span class="pt to" style="margin-left:2px;">→ Rail 2 + FdR</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D4</span><div class="pd lo" id="pd-4"></div><span class="pt to" style="margin-left:2px;">→ Rail 1 + Duinpad</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D3</span><div class="pd lo" id="pd-3"></div><span class="pt to" style="margin-left:2px;">→ Rail D</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D2</span><div class="pd lo" id="pd-2"></div><span class="pt to" style="margin-left:2px;">→ Rail C</span></div>
+        </div>
+        <div style="width:2px; background:#4a4; margin:0 4px; border-radius:1px;"></div>
+        <span style="font-size:0.4em; font-weight:bold; color:#4a4; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Spanning LEDs</span>
+      </div>
+      <div class="pin-h"><div class="pw wn"></div><span class="pn">D1</span><span class="pt tn" style="margin-left:2px;">TX → USB serial</span></div>
+      <div class="pin-h"><div class="pw wn"></div><span class="pn">D0</span><span class="pt tn" style="margin-left:2px;">RX → USB serial</span></div>
+      <div class="pin-h"><div class="pw wi"></div><span class="pn">D14</span><div class="pd lo" id="pd-14"></div><span class="pt ti" style="margin-left:2px;">→ Koppel prim</span></div>
+      <div class="pin-h"><div class="pw wi"></div><span class="pn">D15</span><div class="pd lo" id="pd-15"></div><span class="pt ti" style="margin-left:2px;">→ Koppel sec</span></div>
+      <!-- Spanningspunten: D16-D24 -->
+      <div style="display:flex; align-items:stretch;">
+        <div style="display:flex; flex-direction:column;">
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D16</span><div class="pd lo" id="pd-16"></div><span class="pt ti" style="margin-left:2px;">→ T1 boven</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D17</span><div class="pd lo" id="pd-17"></div><span class="pt ti" style="margin-left:2px;">→ T1 midden</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D18</span><div class="pd lo" id="pd-18"></div><span class="pt ti" style="margin-left:2px;">→ T1 onder</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D19</span><div class="pd lo" id="pd-19"></div><span class="pt ti" style="margin-left:2px;">→ T2 boven</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D20</span><div class="pd lo" id="pd-20"></div><span class="pt ti" style="margin-left:2px;">→ T2 midden</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D21</span><div class="pd lo" id="pd-21"></div><span class="pt ti" style="margin-left:2px;">→ T2 onder</span></div>
+        </div>
+        <div style="width:2px; background:#4a4; margin:0 4px; border-radius:1px;"></div>
+        <span style="font-size:0.4em; font-weight:bold; color:#4a4; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Span.punten</span>
+      </div>
+      <div class="pin-h"><div class="pw wp"></div><span class="pn">+5V</span></div>
+      <div style="display:flex; align-items:stretch;">
+        <div style="display:flex; flex-direction:column;">
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D22</span><div class="pd lo" id="pd-22"></div><span class="pt ti" style="margin-left:2px;">→ T3 boven</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D23</span><div class="pd lo" id="pd-23"></div><span class="pt ti" style="margin-left:2px;">→ T3 midden</span></div>
+          <div class="pin-h"><div class="pw wi"></div><span class="pn">D24</span><div class="pd lo" id="pd-24"></div><span class="pt ti" style="margin-left:2px;">→ T3 onder</span></div>
+        </div>
+        <div style="width:2px; background:#4a4; margin:0 4px; border-radius:1px;"></div>
+        <span style="font-size:0.4em; font-weight:bold; color:#4a4; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Span.punten</span>
+      </div>
+      <div class="pin-h"><div class="pw wf"></div><span class="pn">D25</span></div>
+    </div>
+
+    <!-- ===== BOTTOM STRIP: D47→D26, verticale layout per pin ===== -->
+    <!-- Per pin: [wire↑] [pin-naam] [dot] [functielabel↓] -->
+    <div class="bottom-pins">
+      <div class="brow">
+        <!-- Btn + Koppel: D47-D44 -->
+        <div class="pv"><div class="pvw wo"></div><span class="pn">47</span><span class="pfn to">Aard T3</span></div>
+        <div class="pv"><div class="pvw wo"></div><span class="pn">46</span><span class="pfn to">Aard T2</span></div>
+        <div class="pv"><div class="pvw wo"></div><span class="pn">45</span><span class="pfn to">Aard T1</span></div>
+        <div class="pv"><div class="pvw" style="background:#333;"></div><span class="pn">44</span></div>
+        <div style="width:8px;"></div>
+        <!-- T3: D43-D38 (RS-2, RS-1, VS-s, VS-p, RS-D, RS-C) -->
+        <div class="pv"><div class="pvw wi"></div><span class="pn">43</span><div class="pd lo" id="pd-43"></div><span class="pfn ti">T3 RS-2</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">42</span><div class="pd lo" id="pd-42"></div><span class="pfn ti">T3 RS-1</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">41</span><div class="pd lo" id="pd-41"></div><span class="pfn ti">T3 VS-s</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">40</span><div class="pd lo" id="pd-40"></div><span class="pfn ti">T3 VS-p</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">39</span><div class="pd lo" id="pd-39"></div><span class="pfn ti">T3 RS-D</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">38</span><div class="pd lo" id="pd-38"></div><span class="pfn ti">T3 RS-C</span></div>
+        <div style="width:8px;"></div>
+        <!-- T2: D37-D32 -->
+        <div class="pv"><div class="pvw wi"></div><span class="pn">37</span><div class="pd lo" id="pd-37"></div><span class="pfn ti">T2 RS-2</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">36</span><div class="pd lo" id="pd-36"></div><span class="pfn ti">T2 RS-1</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">35</span><div class="pd lo" id="pd-35"></div><span class="pfn ti">T2 VS-s</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">34</span><div class="pd lo" id="pd-34"></div><span class="pfn ti">T2 VS-p</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">33</span><div class="pd lo" id="pd-33"></div><span class="pfn ti">T2 RS-D</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">32</span><div class="pd lo" id="pd-32"></div><span class="pfn ti">T2 RS-C</span></div>
+        <div style="width:8px;"></div>
+        <!-- T1: D31-D26 -->
+        <div class="pv"><div class="pvw wi"></div><span class="pn">31</span><div class="pd lo" id="pd-31"></div><span class="pfn ti">T1 RS-2</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">30</span><div class="pd lo" id="pd-30"></div><span class="pfn ti">T1 RS-1</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">29</span><div class="pd lo" id="pd-29"></div><span class="pfn ti">T1 VS-s</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">28</span><div class="pd lo" id="pd-28"></div><span class="pfn ti">T1 VS-p</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">27</span><div class="pd lo" id="pd-27"></div><span class="pfn ti">T1 RS-D</span></div>
+        <div class="pv"><div class="pvw wi"></div><span class="pn">26</span><div class="pd lo" id="pd-26"></div><span class="pfn ti">T1 RS-C</span></div>
+      </div>
+      <!-- Groep-brackets onder de pins -->
+      <div class="grp-bracket-h" style="gap:0;">
+        <div style="width:104px; display:flex; flex-direction:column; align-items:center;"><div class="grp-line" style="width:100%; background:#4a4;"></div><span class="grp-lbl" style="color:#4a4;">Aardepunten</span></div>
+        <div style="width:8px;"></div>
+        <div style="width:156px; display:flex; flex-direction:column; align-items:center;"><div class="grp-line" style="width:100%; background:#48f;"></div><span class="grp-lbl">Trafo 3</span></div>
+        <div style="width:8px;"></div>
+        <div style="width:156px; display:flex; flex-direction:column; align-items:center;"><div class="grp-line" style="width:100%; background:#48f;"></div><span class="grp-lbl">Trafo 2</span></div>
+        <div style="width:8px;"></div>
+        <div style="width:156px; display:flex; flex-direction:column; align-items:center;"><div class="grp-line" style="width:100%; background:#48f;"></div><span class="grp-lbl">Trafo 1</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="pinout-legend">
+    <span><div class="leg-dot" style="background:#ff6;"></div> Output HIGH</span>
+    <span><div class="leg-dot" style="background:#4af;"></div> Input actief (LOW)</span>
+    <span><div class="leg-dot" style="background:#f6a;"></div> Buzzer</span>
+    <span><div class="leg-dot" style="background:#333;"></div> Inactief</span>
+  </div>
+</div>
+</div>
+
+<!-- Kabel overlay voor aarding -->
+<svg id="cable-svg" style="position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:1000;">
+  <line id="cable-line" x1="0" y1="0" x2="0" y2="0" stroke="#4a4" stroke-width="2" stroke-dasharray="5,3" style="display:none;"/>
+</svg>
+<div id="aard-msg" style="display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#333;color:#4f4;padding:6px 16px;border-radius:6px;font-size:0.75em;font-weight:bold;z-index:1001;border:1px solid #4a4;">Klik aardepunt ⏚ om te verbinden, of nogmaals spanningspunt om te annuleren</div>
+
+<script>
+// === Generate trafo fields HTML ===
+(function(){
+  const tNames=[['Veld 51','T1','Veld 11'],['Veld 53','T2','Veld 12'],['Veld 54','T3','Veld 14']];
+  const c=document.getElementById('trafo-fields');
+  for(let v=0;v<3;v++){
+    c.innerHTML+=`<div class="veld veld-trafo">
+      <div class="veld-label">${tNames[v][0]}</div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">RS C</span><div class="toggle" id="tog-rs-${v}-0" onclick="toggleRS(${v},0)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="switch-label">RS D</span><div class="toggle" id="tog-rs-${v}-1" onclick="toggleRS(${v},1)"><div class="knob"></div></div></div>
+      </div>
+      <div class="aard-row"><div class="span-dot dead" id="vdot-${v}-0" title="Spanning boven VS-P" style="cursor:pointer;" onclick="clickSpanPunt(${v},0)"></div></div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-${v}-0"></div>
+        <div class="switch-group"><span class="switch-label" style="color:#c33;">VS P</span><div class="toggle vs" id="tog-vs-${v}-0" onclick="toggleVS(${v},0)"><div class="knob"></div></div></div>
+      </div>
+      <div class="aard-row"><div class="span-dot dead" id="vdot-${v}-1a" title="Spanning onder VS-P" style="cursor:pointer;" onclick="clickSpanPunt(${v},1)"></div></div>
+      <div style="display:flex; align-items:center; gap:4px; justify-content:center;">
+        <div class="aard-btn" id="aard-punt-${v}" onclick="clickAardPunt(${v})" title="Aardepunt trafo" style="width:20px;height:20px;font-size:0.55em;line-height:20px;">&#x23DA;</div>
+        <div class="trafo-icon">${tNames[v][1]}</div>
+      </div>
+      <div class="aard-row"><div class="span-dot dead" id="vdot-${v}-1b" title="Spanning boven VS-S" style="cursor:pointer;" onclick="clickSpanPunt(${v},1)"></div></div>
+      <div class="vs-row">
+        <div class="led off" id="led-stor-${v}-1"></div>
+        <div class="switch-group"><span class="switch-label" style="color:#c33;">VS S</span><div class="toggle vs" id="tog-vs-${v}-1" onclick="toggleVS(${v},1)"><div class="knob"></div></div></div>
+      </div>
+      <div class="aard-row"><div class="span-dot dead" id="vdot-${v}-2" title="Spanning onder VS-S" style="cursor:pointer;" onclick="clickSpanPunt(${v},2)"></div></div>
+      <div class="component-row">
+        <div class="switch-group"><span class="switch-label">RS 1</span><div class="toggle" id="tog-rs-${v}-2" onclick="toggleRS(${v},2)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="switch-label">RS 2</span><div class="toggle" id="tog-rs-${v}-3" onclick="toggleRS(${v},3)"><div class="knob"></div></div></div>
+      </div>
+      <div class="veld-label-sec">${tNames[v][2]}</div>
+    </div>`;
+  }
+})();
+
+// === CONSTANTS ===
+const BUZZER_DUUR=1200,BLINK_INTERVAL=500,KOPPELING_MAX_MS=60000;
+const RAIL_50C=0,RAIL_50D=1,TRAFO_PRIM_0=2,TRAFO_SEC_0=5,RAIL_10_1=8,RAIL_10_2=9,NUM_NODES=10;
+const NODE_NAMEN=['50kV-C','50kV-D','Prim-T1','Prim-T2','Prim-T3','Sec-T1','Sec-T2','Sec-T3','10kV-1','10kV-2'];
+const VELD_NAMEN=['Veld 51','Veld 53','Veld 54'],RS_LABELS=['RS C','RS D','RS 1','RS 2'];
+const BUZZER_FREQ={1:880,2:440,3:220,4:330,5:660},BUZZER_PULSE={1:6,2:2,3:1,4:3,5:4};
+const BUZZER_DUUR_PER_TYPE={1:BUZZER_DUUR,2:BUZZER_DUUR,3:BUZZER_DUUR,4:600,5:BUZZER_DUUR};
+
+// === STATE ===
+const state={
+  rs:[[false,true,false,true],[true,false,true,false],[false,true,false,true]],
+  vs:[[true,true],[true,true],[false,false]],
+  koppelPrim:true,koppelSec:false,scenario:0,
+  buzzerTot:{1:0,2:0,3:0,4:0,5:0},
+  koppelingStart:[[0,0],[0,0],[0,0]],koppelingAlarm:[[false,false],[false,false],[false,false]],
+  // Storing 1 puzzel
+  senseA1:false,
+  senseGoed:[false,false,false,false,false,false],
+  // Storing 2 pair
+  pairOk:false,
+  // Aarding per trafo per punt: [boven VS-P, midden, onder VS-S]
+  aard:[[false,false,false],[false,false,false],[false,false,false]],
+};
+let prevRs=state.rs.map(v=>[...v]),prevVs=state.vs.map(v=>[...v]);
+let prevSpanning=new Array(NUM_NODES).fill(false),spanning=new Array(NUM_NODES).fill(false);
+
+// === AUDIO ===
+let audioCtx=null,buzzerOscillators={},buzzerMute=null,audioReady=false;
+function mkDist(a){const n=44100,c=new Float32Array(n);for(let i=0;i<n;i++){const x=(i*2)/n-1;c[i]=((3+a)*x*20*Math.PI/180)/(Math.PI+a*Math.abs(x));}return c;}
+document.addEventListener('click',function f(){
+  if(audioCtx)return;audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  const d=audioCtx.createWaveShaper();d.curve=mkDist(40);
+  const m=audioCtx.createGain();m.gain.value=0.06;
+  buzzerMute=audioCtx.createGain();buzzerMute.gain.value=0;
+  d.connect(m);m.connect(buzzerMute);buzzerMute.connect(audioCtx.destination);
+  for(const t of[1,2,3,4,5]){
+    const o=audioCtx.createOscillator();o.type='square';o.frequency.value=BUZZER_FREQ[t];
+    const l=audioCtx.createOscillator();l.type='square';l.frequency.value=BUZZER_PULSE[t];
+    const lg=audioCtx.createGain();lg.gain.value=0.04;const tg=audioCtx.createGain();tg.gain.value=0;
+    o.connect(tg);tg.connect(d);l.connect(lg);lg.connect(tg.gain);o.start();l.start();
+    buzzerOscillators[t]={typeGain:tg};
+  }
+  audioReady=true;const h=document.getElementById('audio-hint');if(h)h.style.display='none';
+},{once:true});
+function updAudio(now){if(!audioReady)return;if(audioCtx.state==='suspended')audioCtx.resume();let a=false;for(const t of[1,2,3,4,5]){const on=(state.buzzerTot[t]-now)>0;if(on)a=true;buzzerOscillators[t].typeGain.gain.setTargetAtTime(on?1:0,audioCtx.currentTime,0.005);}buzzerMute.gain.setTargetAtTime(a?1:0,audioCtx.currentTime,0.005);}
+
+// === SERIAL ===
+function sP(t,c){const e=document.getElementById('serial');if(c){const s=document.createElement('span');s.className=c;s.textContent=t;e.appendChild(s);}else e.appendChild(document.createTextNode(t));e.scrollTop=e.scrollHeight;}
+function sL(t,c){sP(t+'\n',c);}
+
+// === POWER FLOW ===
+function prop(s,a,b){if(s[a]&&!s[b]){s[b]=true;return true;}if(s[b]&&!s[a]){s[a]=true;return true;}return false;}
+function calcSpan(sv,sr){const s=new Array(NUM_NODES).fill(false);s[RAIL_50D]=true;let g=true;while(g){g=false;if(state.koppelPrim)g|=prop(s,RAIL_50C,RAIL_50D);for(let v=0;v<3;v++){const p=TRAFO_PRIM_0+v,c=TRAFO_SEC_0+v;if(state.rs[v][0]&&!(v===sv&&sr===0))g|=prop(s,RAIL_50C,p);if(state.rs[v][1]&&!(v===sv&&sr===1))g|=prop(s,RAIL_50D,p);if(state.vs[v][0]&&state.vs[v][1])g|=prop(s,p,c);if(state.rs[v][2]&&!(v===sv&&sr===2))g|=prop(s,c,RAIL_10_1);if(state.rs[v][3]&&!(v===sv&&sr===3))g|=prop(s,c,RAIL_10_2);}if(state.koppelSec)g|=prop(s,RAIL_10_1,RAIL_10_2);}return s;}
+
+// === FAULTS ===
+function fout(s,v,b){const n=Date.now();state.buzzerTot[s]=n+(BUZZER_DUUR_PER_TYPE[s]||BUZZER_DUUR);sL(`!!! FOUT ${s} | ${v} | ${b}`,`fout-${s}`);}
+function rsN(v,r){return[[RAIL_50C,TRAFO_PRIM_0+v],[RAIL_50D,TRAFO_PRIM_0+v],[TRAFO_SEC_0+v,RAIL_10_1],[TRAFO_SEC_0+v,RAIL_10_2]][r];}
+function ckSF(v,r){const[a,b]=rsN(v,r);const s=calcSpan(v,r);if(s[a]===s[b])return;if((r<=1)?state.vs[v][0]:state.vs[v][1])fout(1,VELD_NAMEN[v],`${RS_LABELS[r]} geschakeld onder belasting!`);}
+function ckUV(){if(prevSpanning[RAIL_10_1]&&!spanning[RAIL_10_1])fout(2,'SYSTEEM','10kV Rail 1 geen spanning!');if(prevSpanning[RAIL_10_2]&&!spanning[RAIL_10_2])fout(2,'SYSTEEM','10kV Rail 2 geen spanning!');}
+function ckRK(now){for(let v=0;v<3;v++){ckP(v,0,state.rs[v][0]&&state.rs[v][1],'RS C+D',now);ckP(v,1,state.rs[v][2]&&state.rs[v][3],'RS 1+2',now);}}
+function ckP(v,p,bd,l,now){if(bd){if(state.koppelingStart[v][p]===0){state.koppelingStart[v][p]=now;state.koppelingAlarm[v][p]=false;}if(!state.koppelingAlarm[v][p]&&(now-state.koppelingStart[v][p])>=KOPPELING_MAX_MS){fout(3,VELD_NAMEN[v],`RAILKOPPELING: ${l} >60s!`);state.koppelingAlarm[v][p]=true;}if(state.koppelingAlarm[v][p])state.buzzerTot[3]=now+BUZZER_DUUR;}else{state.koppelingStart[v][p]=0;state.koppelingAlarm[v][p]=false;}}
+
+// === TOGGLES ===
+function toggleRS(v,r){state.rs[v][r]=!state.rs[v][r];uT(`tog-rs-${v}-${r}`,state.rs[v][r]);runLoop();}
+function toggleVS(v,i){if(state.scenario===2&&v===1&&i===0){const t=document.getElementById(`tog-vs-${v}-${i}`);t.classList.toggle('on');sL('VS-PRIM Veld 53 in storing - schakelt NIET!','fout-2');setTimeout(()=>t.classList.add('on'),300);return;}state.vs[v][i]=!state.vs[v][i];uT(`tog-vs-${v}-${i}`,state.vs[v][i]);runLoop();}
+// Spanning op een aardpunt: 0=boven VS-P (trafoPrim), 1=midden, 2=onder VS-S (trafoSec)
+function aardPuntSpanning(v,punt){
+  if(punt===0) return spanning[TRAFO_PRIM_0+v];
+  if(punt===2) return spanning[TRAFO_SEC_0+v];
+  // punt 1 = midden: spanning als VS-P dicht+trafoPrim spanning, OF VS-S dicht+trafoSec spanning
+  return (state.vs[v][0]&&spanning[TRAFO_PRIM_0+v]) || (state.vs[v][1]&&spanning[TRAFO_SEC_0+v]);
+}
+// === AARDING INTERACTIE ===
+let aardDrag=null; // {v, p} of null
+
+function clickSpanPunt(v,p){
+  if(aardDrag&&aardDrag.v===v&&aardDrag.p===p){
+    // Annuleer
+    cancelAardDrag();
+    return;
+  }
+  if(aardDrag){
+    cancelAardDrag();
+  }
+  // Als al geaard: ontkoppel
+  if(state.aard[v][p]){
+    state.aard[v][p]=false;
+    // punt 1 = midden: 1a en 1b gekoppeld
+    sL(`${VELD_NAMEN[v]} aarding punt ${p+1} verwijderd.`);
+    runLoop();
+    return;
+  }
+  // Start drag
+  aardDrag={v,p};
+  document.getElementById('cable-line').style.display='block';
+  document.getElementById('aard-msg').style.display='block';
+  updateCableStart();
+}
+
+function clickAardPunt(v){
+  if(!aardDrag||aardDrag.v!==v){cancelAardDrag();return;}
+  const p=aardDrag.p;
+  // Verbinden!
+  state.aard[v][p]=true;
+  cancelAardDrag();
+  // Check spanning
+  if(aardPuntSpanning(v,p)){
+    fout(1,VELD_NAMEN[v],`Aarding op punt ${p+1} terwijl er spanning staat! Dodelijke vlamboog!`);
+  } else {
+    sL(`${VELD_NAMEN[v]} punt ${p+1} veilig geaard.`);
+  }
+  runLoop();
+}
+
+function cancelAardDrag(){
+  aardDrag=null;
+  document.getElementById('cable-line').style.display='none';
+  document.getElementById('aard-msg').style.display='none';
+}
+
+function updateCableStart(){
+  if(!aardDrag)return;
+  const ids=(aardDrag.p===1)?[`vdot-${aardDrag.v}-1a`]:[`vdot-${aardDrag.v}-${aardDrag.p}`];
+  const el=document.getElementById(ids[0]);
+  if(!el)return;
+  const r=el.getBoundingClientRect();
+  const line=document.getElementById('cable-line');
+  line.setAttribute('x1',r.left+r.width/2);
+  line.setAttribute('y1',r.top+r.height/2);
+}
+
+document.addEventListener('mousemove',(e)=>{
+  if(!aardDrag)return;
+  const line=document.getElementById('cable-line');
+  line.setAttribute('x2',e.clientX);
+  line.setAttribute('y2',e.clientY);
+  updateCableStart(); // update start too in case of scroll
+});
+
+document.addEventListener('keydown',(e)=>{
+  if(e.key==='Escape')cancelAardDrag();
+});
+function toggleKoppel(t){if(t==='prim'){state.koppelPrim=!state.koppelPrim;uT('tog-koppelPrim',state.koppelPrim);}else{state.koppelSec=!state.koppelSec;uT('tog-koppelSec',state.koppelSec);}runLoop();}
+function uT(id,on){const e=document.getElementById(id);if(e)e.classList.toggle('on',on);}
+function setScenario(n){
+  state.scenario=n;
+  document.querySelectorAll('.scenario-btn').forEach((b,i)=>b.classList.toggle('active',i===n));
+  document.getElementById('sense-panel').style.display=(n===1)?'block':'none';
+  document.getElementById('pair-panel').style.display=(n===2)?'block':'none';
+  if(n===1){sL('SCENARIO 1: Trafo 1 stuk. Verbind A2-A7 met GND om storing op te lossen.','fout-2');}
+  if(n===2){sL('SCENARIO 2: VS-prim T2 stuk. Verbind A8 met A9 om storing op te lossen.','fout-2');}
+  if(n===2){state.vs[1][0]=true;uT('tog-vs-1-0',true);sL('SCENARIO 2: VS-prim Veld 53 in storing.','fout-2');}
+  runLoop();
+}
+
+// === MAIN LOOP ===
+function runLoop(){
+  const now=Date.now();
+  for(let v=0;v<3;v++)for(let r=0;r<4;r++)if(state.rs[v][r]!==prevRs[v][r]){ckSF(v,r);sL(`${VELD_NAMEN[v]} ${RS_LABELS[r]} -> ${state.rs[v][r]?'DICHT':'OPEN'}`);}
+  prevSpanning=[...spanning];spanning=calcSpan();
+  ckUV();ckRK(now);
+  // Verkeerde schakelvolgorde (fout 4)
+  for(let v=0;v<3;v++){if(prevVs[v][0]&&!state.vs[v][0]&&state.vs[v][1])fout(4,VELD_NAMEN[v],'Verkeerde volgorde: VS-prim UIT terwijl VS-sec IN.');if(!prevVs[v][1]&&state.vs[v][1]&&!state.vs[v][0])fout(4,VELD_NAMEN[v],'Verkeerde volgorde: VS-sec IN terwijl VS-prim UIT.');}
+  // Aarding fout: spanning komt op geaard punt (fout 1)
+  for(let v=0;v<3;v++)for(let p=0;p<3;p++){
+    if(state.aard[v][p]&&aardPuntSpanning(v,p)){
+      fout(1,VELD_NAMEN[v],`Spanning op geaard punt ${p+1}! Dodelijke vlamboog!`);
+    }
+  }
+  prevRs=state.rs.map(v=>[...v]);prevVs=state.vs.map(v=>[...v]);
+  updateUI(now);
+}
+
+// === UI ===
+function sL2(id,c){const e=document.getElementById(id);if(e)e.className='led '+c;}
+function sD(id,c){const e=document.getElementById(id);if(e)e.className='pd '+c;}
+
+function updateUI(now){
+  // Rail bars - glow
+  document.getElementById('railC-bar').classList.toggle('powered',spanning[RAIL_50C]);
+  document.getElementById('railD-bar').classList.toggle('powered',spanning[RAIL_50D]);
+  document.getElementById('rail1-bar').classList.toggle('powered',spanning[RAIL_10_1]);
+  document.getElementById('rail2-bar').classList.toggle('powered',spanning[RAIL_10_2]);
+
+  // Rail power LEDs (helemaal links)
+  sL2('led-railC-pwr',spanning[RAIL_50C]?'red':'red-dim');
+  sL2('led-railD-pwr',spanning[RAIL_50D]?'red':'red-dim');
+  sL2('led-rail1-pwr',spanning[RAIL_10_1]?'red':'red-dim');
+  sL2('led-rail2-pwr',spanning[RAIL_10_2]?'red':'red-dim');
+
+  // Kruispunt-LEDs (fictief): aan als RS dicht EN rail heeft spanning
+  const railNodes = [RAIL_50C, RAIL_50D, RAIL_10_1, RAIL_10_2];
+  for(let v=0;v<3;v++)for(let r=0;r<4;r++){
+    const el=document.getElementById(`jct-${v}-${r}`);
+    if(el) el.className='jct '+(state.rs[v][r]&&spanning[railNodes[r]]?'on':'off');
+  }
+
+  // V13 Duinpad: alleen Rail 1 LED aan, Rail 2 altijd uit
+  sL2('led-v13-1',spanning[RAIL_10_1]?'red':'red-dim');
+  sL2('led-v13-2','off');
+  // V15 Fre de Rik: alleen Rail 2 LED aan, Rail 1 altijd uit
+  sL2('led-v15-1','off');
+  sL2('led-v15-2',spanning[RAIL_10_2]?'red':'red-dim');
+
+  // Storing LEDs
+  const bk=(Math.floor(now/BLINK_INTERVAL)%2)===0;
+  const st=[[false,false],[false,false],[false,false]];
+  for(let v=0;v<3;v++)for(let i=0;i<2;i++){let ls='off',on=false;
+    if(state.scenario===1&&v===0){
+      if(isStor1Opgelost()){ls='orange';on=true;}  // continu aan
+      else{ls=bk?'orange':'orange-dim';on=bk;}     // knipperen
+    }
+    else if(state.scenario===2&&v===1&&i===0){
+      if(isStor2Opgelost()){ls='orange';on=true;}
+      else{ls=bk?'orange':'orange-dim';on=bk;}
+    }
+    sL2(`led-stor-${v}-${i}`,ls);st[v][i]=on;
+  }
+  for(let v=0;v<3;v++)for(let i=0;i<2;i++){const t=document.getElementById(`tog-vs-${v}-${i}`);if(t)t.classList.toggle('storing',state.scenario===2&&v===1&&i===0);}
+
+  // Buzzer
+  const lb={1:'SCHAKELFOUT',2:'UITVAL',3:'RAILKOPPELING',4:'VOLGORDE',5:'FOUTE PIN'},cl={1:'#f44',2:'#fa0',3:'#ff0',4:'#aaf',5:'#f4f'};
+  const af=[1,2,3,4,5].filter(t=>(state.buzzerTot[t]-now)>0),ba=af.length>0;
+  sL2('buzzer-led',ba?'red':'off');
+  document.getElementById('buzzer-text').textContent=ba?'AAN':'UIT';
+  const tt=document.getElementById('buzzer-type-text');
+  if(ba){tt.textContent='('+af.map(t=>lb[t]).join('+')+')';tt.style.color=cl[af[0]];}else tt.textContent='';
+  updAudio(now);
+
+  // === PINOUT: Output pins (right strip) ===
+  sD('pd-2',spanning[RAIL_50C]?'hi-out':'lo');   // Rail C
+  sD('pd-3',spanning[RAIL_50D]?'hi-out':'lo');   // Rail D
+  sD('pd-4',spanning[RAIL_10_1]?'hi-out':'lo');  // Rail 1 + Duinpad
+  sD('pd-5',spanning[RAIL_10_2]?'hi-out':'lo');  // Rail 2 + FdR
+  sD('pd-8',st[0][0]?'hi-out':'lo');  // ST T1p
+  sD('pd-9',st[0][1]?'hi-out':'lo');  // ST T1s
+  sD('pd-10',st[1][0]?'hi-out':'lo'); // ST T2p
+  sD('pd-11',st[1][1]?'hi-out':'lo'); // ST T2s
+  sD('pd-12',st[2][0]?'hi-out':'lo'); // ST T3p
+  sD('pd-13',st[2][1]?'hi-out':'lo'); // ST T3s
+  // Buzzer pins: D6 = kort (3s bij elke fout), D7 = permanent (zolang fout voortduurt)
+  const shortBuzzer = ba;  // kort: aan bij elke fout trigger
+  const permBuzzer = spanning[RAIL_10_1]===false || spanning[RAIL_10_2]===false  // uitval
+    || state.koppelingAlarm.some(v => v[0] || v[1]);  // railkoppeling
+  sD('pd-6', shortBuzzer ? 'hi-buz' : 'lo');
+  sD('pd-7', permBuzzer ? 'hi-buz' : 'lo');
+
+  // === PINOUT: Input pins (bottom strip D26-D47) ===
+  // Per trafo 6 pins: RS-C, RS-D, VS-p, VS-s, RS-1, RS-2
+  for(let v=0;v<3;v++){const b=26+v*6;
+    sD(`pd-${b}`,state.rs[v][0]?'hi-in':'lo');    // RS-C
+    sD(`pd-${b+1}`,state.rs[v][1]?'hi-in':'lo');  // RS-D
+    sD(`pd-${b+2}`,state.vs[v][0]?'hi-in':'lo');  // VS-p
+    sD(`pd-${b+3}`,state.vs[v][1]?'hi-in':'lo');  // VS-s
+    sD(`pd-${b+4}`,state.rs[v][2]?'hi-in':'lo');  // RS-1
+    sD(`pd-${b+5}`,state.rs[v][3]?'hi-in':'lo');  // RS-2
+  }
+  // Koppelvelden op D14/D15 (rechter reep)
+  sD('pd-14',state.koppelPrim?'hi-in':'lo');
+  sD('pd-15',state.koppelSec?'hi-in':'lo');
+  // Storingsknoppen op D48/D49
+  sD('pd-48', state.scenario===1 ? 'hi-in' : 'lo');
+  sD('pd-49', state.scenario===2 ? 'hi-in' : 'lo');
+
+  // Spanningspunten D16-D24 (INPUT_PULLUP: LOW=geaard, HIGH=open)
+  for(let v=0;v<3;v++)for(let p=0;p<3;p++){
+    const pin=16+v*3+p; // D16-D18=T1, D19-D21=T2, D22-D24=T3
+    sD(`pd-${pin}`, state.aard[v][p] ? 'hi-in' : 'lo');
+  }
+
+  // Aarding: spanning-dots + geaard-indicatie
+  for(let v=0;v<3;v++){
+    const anyEarthed=state.aard[v].some(x=>x);
+    const ab=document.getElementById(`aard-punt-${v}`);
+    if(ab) ab.classList.toggle('connected',anyEarthed);
+    for(let p of[0,1,2]){
+      const hasV=aardPuntSpanning(v,p);
+      const earthed=state.aard[v][p];
+      const cls='span-dot '+(hasV?'live':(earthed?'safe':'dead'))+(earthed?' earthed':'');
+      const ids=(p===1)?[`vdot-${v}-1a`,`vdot-${v}-1b`]:[`vdot-${v}-${p}`];
+      for(const id of ids){const el=document.getElementById(id);if(el)el.className=cls;}
+    }
+  }
+}
+
+// === RESET ===
+function resetStartScenario(){
+  state.rs=[[false,true,false,true],[true,false,true,false],[false,true,false,true]];
+  state.vs=[[true,true],[true,true],[false,false]];
+  state.koppelPrim=true;state.koppelSec=false;
+  state.buzzerTot={1:0,2:0,3:0,4:0,5:0};
+  state.koppelingStart=[[0,0],[0,0],[0,0]];state.koppelingAlarm=[[false,false],[false,false],[false,false]];
+  state.senseA1=false;state.senseGoed=[false,false,false,false,false,false];
+  state.pairOk=false;
+  state.aard=[[false,false,false],[false,false,false],[false,false,false]];
+  renderSenseGrid();renderPairGrid();
+  prevRs=state.rs.map(v=>[...v]);prevVs=state.vs.map(v=>[...v]);
+  for(let v=0;v<3;v++){for(let r=0;r<4;r++)uT(`tog-rs-${v}-${r}`,state.rs[v][r]);for(let i=0;i<2;i++)uT(`tog-vs-${v}-${i}`,state.vs[v][i]);}
+  uT('tog-koppelPrim',state.koppelPrim);uT('tog-koppelSec',state.koppelSec);
+  spanning=calcSpan();prevSpanning=[...spanning];sL('=== RESET ===');runLoop();
+}
+
+// === SENSE PUZZLE ===
+function renderSenseGrid(){
+  const g=document.getElementById('sense-grid');
+  g.innerHTML='';
+  // A1 = foute pin
+  const b1=document.createElement('button');
+  b1.className='sense-btn'+(state.senseA1?' fout':'');
+  b1.textContent='A1: '+(state.senseA1?'FOUT!':'los');
+  b1.onclick=()=>{state.senseA1=!state.senseA1;if(state.senseA1)fout(5,'STORING 1','Foute pin A1 aangesloten!');renderSenseGrid();runLoop();};
+  g.appendChild(b1);
+  // A2-A7 = goede pins
+  for(let i=0;i<6;i++){
+    const b=document.createElement('button');
+    b.className='sense-btn'+(state.senseGoed[i]?' connected':'');
+    b.textContent=`A${i+2}: ${state.senseGoed[i]?'OK':'los'}`;
+    b.onclick=(()=>{const idx=i;return()=>{state.senseGoed[idx]=!state.senseGoed[idx];renderSenseGrid();runLoop();};})();
+    g.appendChild(b);
+  }
+}
+function renderPairGrid(){
+  const g=document.getElementById('pair-grid');
+  g.innerHTML='';
+  const b=document.createElement('button');
+  b.className='sense-btn'+(state.pairOk?' connected':'');
+  b.textContent='A8↔A9: '+(state.pairOk?'VERBONDEN':'los');
+  b.onclick=()=>{state.pairOk=!state.pairOk;renderPairGrid();runLoop();};
+  g.appendChild(b);
+}
+function isStor1Opgelost(){return state.senseGoed.every(x=>x);}
+function isStor2Opgelost(){return state.pairOk;}
+
+// === INIT ===
+for(let v=0;v<3;v++){for(let r=0;r<4;r++)uT(`tog-rs-${v}-${r}`,state.rs[v][r]);for(let i=0;i<2;i++)uT(`tog-vs-${v}-${i}`,state.vs[v][i]);}
+uT('tog-koppelPrim',state.koppelPrim);uT('tog-koppelSec',state.koppelSec);
+spanning=calcSpan();prevSpanning=[...spanning];
+renderSenseGrid();renderPairGrid();
+runLoop();
+setInterval(()=>{ckRK(Date.now());updateUI(Date.now());},200);
+sL('Schakelbox V7 — Simulator + Live Arduino Pinout');
+sL('Fouten: 1=SCHAKELFOUT 2=UITVAL 3=RAILKOPPELING 4=VOLGORDE 5=FOUTE PIN');
+sL('='.repeat(50));
+</script>
+</body>
+</html>
