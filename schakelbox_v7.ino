@@ -1,4 +1,4 @@
-/* Schakelbox V7.1 - Power Flow Model
+/* Schakelbox V7.2 - Power Flow Model
  * Laatste wijziging: 28/04/2026
  *
  * Simuleert stroomvoorziening door een onderstation met 3 trafovelden.
@@ -43,6 +43,8 @@
 #define DEBUG            true
 #define STATUS_INTERVAL  3000
 #define DEBOUNCE_MS      25      // input moet zo lang stabiel zijn voor accept
+#define VOLT_SENSE_ENABLED  false  // A0 voltage-sense check; floating pin → ruis
+#define VOLT_SENSE_SAMPLES  10     // aantal opeenvolgende samples >threshold voor trigger
 #define BUZZER_KORT_DUUR 1200    // korte buzzer standaard
 // Per foutsoort: 1=schakelfout, 2=uitval, 3=railkoppeling, 4=volgorde(kort), 5=foute pin
 const unsigned long BUZZER_DUUR_PER_TYPE[] = { 0, 1200, 1200, 1200, 600, 1200 };
@@ -588,7 +590,7 @@ void setup() {
   if (DEBUG) {
     Serial.begin(9600);
     delay(200);
-    Serial.println(F("Schakelbox V7.1 - Power Flow Model"));
+    Serial.println(F("Schakelbox V7.2 - Power Flow Model"));
     Serial.println(F("==================================="));
   }
 
@@ -687,12 +689,23 @@ void loop() {
   leesAarding();
 
   // --- 2. Spanning detectie (analoog, optioneel) ---
-  int adc = analogRead(VOLT_SENSE_PIN);
-  unsigned long mv = (unsigned long)adc * ADC_REF_MV / 1023;
-  bool voltHoog = (mv >= VTHRESH_MV);
-  if (!prevVoltHoog && voltHoog)
-    meldFout(1, "SYSTEEM", "VOLT_SENSE: spanning op ground!");
-  prevVoltHoog = voltHoog;
+  // Vereist VOLT_SENSE_SAMPLES opeenvolgende reads boven threshold; voorkomt
+  // valse triggers door mains-hum pickup op een floating pin.
+  if (VOLT_SENSE_ENABLED) {
+    static uint8_t voltHoogCount = 0;
+    int adc = analogRead(VOLT_SENSE_PIN);
+    unsigned long mv = (unsigned long)adc * ADC_REF_MV / 1023;
+    bool sample = (mv >= VTHRESH_MV);
+    if (sample) {
+      if (voltHoogCount < VOLT_SENSE_SAMPLES) voltHoogCount++;
+    } else {
+      voltHoogCount = 0;
+    }
+    bool voltHoog = (voltHoogCount >= VOLT_SENSE_SAMPLES);
+    if (!prevVoltHoog && voltHoog)
+      meldFout(1, "SYSTEEM", "VOLT_SENSE: spanning op ground!");
+    prevVoltHoog = voltHoog;
+  }
 
   // --- 3. Schakelfout detectie (soort 1) ---
   for (int v = 0; v < 3; v++) {

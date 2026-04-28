@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Schakelbox Simulator V7.1 - Power Flow + Live Pinout</title>
+<title>Schakelbox Simulator V7.2 - Power Flow + Live Pinout</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
@@ -136,7 +136,7 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
 </head>
 <body>
 
-<h1>Schakelbox V7.1 — Simulator + Live Arduino Pinout</h1>
+<h1>Schakelbox V7.2 — Simulator + Live Arduino Pinout</h1>
 
 <div class="split">
 
@@ -880,7 +880,7 @@ spanning=calcSpan();prevSpanning=[...spanning];
 renderSenseGrid();renderPairGrid();
 runLoop();
 setInterval(()=>{ckRK(Date.now());updateUI(Date.now());},200);
-sL('Schakelbox V7.1 — Simulator + Live Arduino Pinout');
+sL('Schakelbox V7.2 — Simulator + Live Arduino Pinout');
 sL('Fouten: 1=SCHAKELFOUT 2=UITVAL 3=RAILKOPPELING 4=VOLGORDE 5=FOUTE PIN');
 sL('='.repeat(50));
 </script>

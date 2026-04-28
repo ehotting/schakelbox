@@ -1,4 +1,4 @@
-// Schakelbox V7.1 - Kernlogica (geëxtraheerd voor testing)
+// Schakelbox V7.2 - Kernlogica (geëxtraheerd voor testing)
 // Identiek aan de logica in schakelbox_simulator_v7.html en schakelbox_v7.ino
 
 const RAIL_50C = 0, RAIL_50D = 1;
