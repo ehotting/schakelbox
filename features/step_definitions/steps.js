@@ -245,3 +245,58 @@ Then('staat er spanning op geaard punt {int} van trafo {int}', function (punt, t
   herbereken();
   assert.ok(logic.aardPuntSpanning(state, spanning, t-1, punt-1), `Punt ${punt} van trafo ${t} zou spanning moeten hebben`);
 });
+
+// === DEBOUNCE ===
+
+let dbg, dbgRaw, dbgNow;
+
+Given('een debouncer met startwaarde {word} en drempel {int} ms', function (val, ms) {
+  const initial = (val === 'HOOG') ? 1 : 0;
+  dbg = logic.createDebouncer(initial, ms);
+  dbgRaw = initial;
+  dbgNow = 0;
+  logic.debounceSample(dbg, dbgRaw, dbgNow);
+});
+
+// Stap-helper: simuleer dat de raw input een waarde heeft tot een gegeven tijdstip,
+// door iedere ms te samplen vanaf dbgNow tot het opgegeven tijdstip.
+function sampleTot(eindMs) {
+  while (dbgNow < eindMs) {
+    dbgNow += 1;
+    logic.debounceSample(dbg, dbgRaw, dbgNow);
+  }
+}
+
+When('de input {word} blijft gedurende {int} ms', function (val, ms) {
+  dbgRaw = (val === 'HOOG') ? 1 : 0;
+  sampleTot(dbgNow + ms);
+});
+
+When('de input op tijdstip {int} ms naar {word} gaat', function (t, val) {
+  sampleTot(t);
+  dbgRaw = (val === 'HOOG') ? 1 : 0;
+  logic.debounceSample(dbg, dbgRaw, dbgNow);
+});
+
+When('de input op tijdstip {int} ms terug naar {word} gaat', function (t, val) {
+  sampleTot(t);
+  dbgRaw = (val === 'HOOG') ? 1 : 0;
+  logic.debounceSample(dbg, dbgRaw, dbgNow);
+});
+
+When('de input op tijdstip {int} ms kort naar {word} gaat', function (t, val) {
+  sampleTot(t);
+  dbgRaw = (val === 'HOOG') ? 1 : 0;
+  logic.debounceSample(dbg, dbgRaw, dbgNow);
+});
+
+When('de input {word} blijft tot tijdstip {int} ms', function (val, t) {
+  dbgRaw = (val === 'HOOG') ? 1 : 0;
+  sampleTot(t);
+});
+
+Then('is de gefilterde waarde {word}', function (val) {
+  const expected = (val === 'HOOG') ? 1 : 0;
+  assert.strictEqual(dbg.stable, expected,
+    `Verwachtte ${val} (${expected}) maar gefilterde waarde was ${dbg.stable}`);
+});

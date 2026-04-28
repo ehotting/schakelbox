@@ -42,6 +42,7 @@
 
 #define DEBUG            true
 #define STATUS_INTERVAL  3000
+#define DEBOUNCE_MS      25      // input moet zo lang stabiel zijn voor accept
 #define BUZZER_KORT_DUUR 1200    // korte buzzer standaard
 // Per foutsoort: 1=schakelfout, 2=uitval, 3=railkoppeling, 4=volgorde(kort), 5=foute pin
 const unsigned long BUZZER_DUUR_PER_TYPE[] = { 0, 1200, 1200, 1200, 600, 1200 };
@@ -176,6 +177,42 @@ unsigned long lastBlink = 0;
 bool prevVoltHoog = false;
 bool prevSenseGoed[NUM_SENSE_GOED] = {};
 bool kopFout_50[3], kopFout_10[3];
+
+// =================================================================
+//  DEBOUNCE
+// =================================================================
+//
+// Filtert mains-hum en hand-pickup op INPUT_PULLUP lijnen. Een input
+// moet DEBOUNCE_MS stabiel zijn voordat de nieuwe waarde geaccepteerd
+// wordt. Vervangt overal digitalRead() voor digitale input-pins.
+
+struct DebounceState {
+  uint8_t stable;
+  uint8_t candidate;
+  unsigned long lastChange;
+};
+
+static DebounceState dbState[NUM_DIGITAL_PINS];
+
+void debounceInit(uint8_t pin) {
+  uint8_t v = digitalRead(pin);
+  dbState[pin].stable = v;
+  dbState[pin].candidate = v;
+  dbState[pin].lastChange = 0;
+}
+
+uint8_t debouncedRead(uint8_t pin) {
+  DebounceState& s = dbState[pin];
+  uint8_t raw = digitalRead(pin);
+  unsigned long now = millis();
+  if (raw != s.candidate) {
+    s.candidate = raw;
+    s.lastChange = now;
+  } else if (raw != s.stable && (now - s.lastChange) >= DEBOUNCE_MS) {
+    s.stable = raw;
+  }
+  return s.stable;
+}
 
 // =================================================================
 //  SPANNING PROPAGATIE
@@ -343,19 +380,19 @@ void checkAardingFout() {
 
 void leesSchakelaars() {
   for (int v = 0; v < 3; v++) {
-    rs[v][RS_C_IDX] = (digitalRead(VELD[v].rsC)    == LOW);
-    rs[v][RS_D_IDX] = (digitalRead(VELD[v].rsD)    == LOW);
-    rs[v][RS_1_IDX] = (digitalRead(VELD[v].rs1)    == LOW);
-    rs[v][RS_2_IDX] = (digitalRead(VELD[v].rs2)    == LOW);
-    vs[v][0]        = (digitalRead(VELD[v].vsPrim)  == LOW);
-    vs[v][1]        = (digitalRead(VELD[v].vsSec)   == LOW);
+    rs[v][RS_C_IDX] = (debouncedRead(VELD[v].rsC)    == LOW);
+    rs[v][RS_D_IDX] = (debouncedRead(VELD[v].rsD)    == LOW);
+    rs[v][RS_1_IDX] = (debouncedRead(VELD[v].rs1)    == LOW);
+    rs[v][RS_2_IDX] = (debouncedRead(VELD[v].rs2)    == LOW);
+    vs[v][0]        = (debouncedRead(VELD[v].vsPrim)  == LOW);
+    vs[v][1]        = (debouncedRead(VELD[v].vsSec)   == LOW);
   }
-  koppelPrim = (digitalRead(KOPPEL_PRIM_PIN) == LOW);
-  koppelSec  = (digitalRead(KOPPEL_SEC_PIN)  == LOW);
+  koppelPrim = (debouncedRead(KOPPEL_PRIM_PIN) == LOW);
+  koppelSec  = (debouncedRead(KOPPEL_SEC_PIN)  == LOW);
 
   // Storingsknoppen
-  btnStoring[0] = (digitalRead(BTN_STORING1_PIN) == LOW);
-  btnStoring[1] = (digitalRead(BTN_STORING2_PIN) == LOW);
+  btnStoring[0] = (debouncedRead(BTN_STORING1_PIN) == LOW);
+  btnStoring[1] = (debouncedRead(BTN_STORING2_PIN) == LOW);
 
   // Scenario 2: VS-prim T2 stuk — forceer IN als storing actief en niet opgelost
   if (btnStoring[1] && !pairVerbonden) {
@@ -375,7 +412,7 @@ void leesStoringPuzzel() {
   bool prevAllOk = allSenseGoedOk;
   allSenseGoedOk = true;
   for (uint8_t i = 0; i < NUM_SENSE_GOED; i++) {
-    bool ok = (digitalRead(SENSE_GOED_PINS[i]) == LOW);
+    bool ok = (debouncedRead(SENSE_GOED_PINS[i]) == LOW);
     // Edge: pin wordt aangesloten zonder aarding → fout 1
     if (ok && !prevSenseGoed[i] && btnStoring[0] && !isTrafoGeaard(0)) {
       meldFout(1, "STORING 1", "Werken zonder aarding! Dodelijk gevaar!");
@@ -385,7 +422,7 @@ void leesStoringPuzzel() {
   }
 
   bool wasFoutAangesloten = senseFoutAangesloten;
-  senseFoutAangesloten = (digitalRead(SENSE_FOUT_PIN) == LOW);
+  senseFoutAangesloten = (debouncedRead(SENSE_FOUT_PIN) == LOW);
   if (senseFoutAangesloten && !wasFoutAangesloten) {
     if (btnStoring[0] && !isTrafoGeaard(0))
       meldFout(1, "STORING 1", "Werken zonder aarding! Dodelijk gevaar!");
@@ -394,7 +431,7 @@ void leesStoringPuzzel() {
 
   // Storing 2: A8→A9 pair
   bool wasPairVerbonden = pairVerbonden;
-  pairVerbonden = (digitalRead(PAIR_RX_PIN) == LOW);
+  pairVerbonden = (debouncedRead(PAIR_RX_PIN) == LOW);
   if (pairVerbonden && !wasPairVerbonden && btnStoring[1] && !isTrafoGeaard(1)) {
     meldFout(1, "STORING 2", "Werken zonder aarding! Dodelijk gevaar!");
   }
@@ -403,7 +440,7 @@ void leesStoringPuzzel() {
 void leesAarding() {
   for (int v = 0; v < 3; v++) {
     for (int p = 0; p < 3; p++) {
-      geaard[v][p] = (digitalRead(SPAN_PUNT_PINS[v][p]) == LOW);
+      geaard[v][p] = (debouncedRead(SPAN_PUNT_PINS[v][p]) == LOW);
     }
   }
 }
@@ -605,6 +642,22 @@ void setup() {
 
   // VSENSE
   pinMode(VOLT_SENSE_PIN, INPUT);
+
+  // Debounce state initialiseren op de actuele idle-waarden
+  // (anders detecteert debouncedRead alle pins als "veranderend" bij boot)
+  uint8_t debouncePins[] = {
+    KOPPEL_PRIM_PIN, KOPPEL_SEC_PIN,
+    BTN_STORING1_PIN, BTN_STORING2_PIN,
+    SENSE_FOUT_PIN, PAIR_RX_PIN,
+    A2, A3, A4, A5, A6, A7
+  };
+  for (uint8_t p : debouncePins) debounceInit(p);
+  for (int v = 0; v < 3; v++) {
+    debounceInit(VELD[v].rsC);    debounceInit(VELD[v].rsD);
+    debounceInit(VELD[v].vsPrim); debounceInit(VELD[v].vsSec);
+    debounceInit(VELD[v].rs1);    debounceInit(VELD[v].rs2);
+    for (int p = 0; p < 3; p++) debounceInit(SPAN_PUNT_PINS[v][p]);
+  }
 
   // Initieel lezen
   leesSchakelaars();

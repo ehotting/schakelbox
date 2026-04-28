@@ -160,10 +160,33 @@ function checkAardingFout(state, spanning) {
   return fouten;
 }
 
+// Debounce: filtert mains-hum / hand-pickup op INPUT_PULLUP lijnen.
+// Een input moet `debounceMs` stabiel zijn voordat de waarde geaccepteerd
+// wordt. Identiek aan de C++ implementatie in schakelbox_v7.ino.
+function createDebouncer(initialValue, debounceMs = 25) {
+  return {
+    stable: initialValue,
+    candidate: initialValue,
+    lastChange: 0,
+    debounceMs,
+  };
+}
+
+function debounceSample(d, raw, now) {
+  if (raw !== d.candidate) {
+    d.candidate = raw;
+    d.lastChange = now;
+  } else if (raw !== d.stable && (now - d.lastChange) >= d.debounceMs) {
+    d.stable = raw;
+  }
+  return d.stable;
+}
+
 module.exports = {
   RAIL_50C, RAIL_50D, TRAFO_PRIM_0, TRAFO_SEC_0, RAIL_10_1, RAIL_10_2, NUM_NODES,
   NODE_NAMEN, VELD_NAMEN, RS_LABELS,
   createState, createStartScenario,
   berekenSpanning, aardPuntSpanning, rsNodes,
   checkSchakelfout, checkUitval, checkRailkoppeling, checkVolgorde, checkAardingFout,
+  createDebouncer, debounceSample,
 };
