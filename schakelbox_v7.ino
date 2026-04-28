@@ -1,5 +1,5 @@
-/* Schakelbox V7.0 - Power Flow Model
- * Laatste wijziging: 10/04/2026
+/* Schakelbox V7.1 - Power Flow Model
+ * Laatste wijziging: 28/04/2026
  *
  * Simuleert stroomvoorziening door een onderstation met 3 trafovelden.
  * Spanning wordt gepropageerd door gesloten schakelaars (bidirectioneel).
@@ -588,7 +588,7 @@ void setup() {
   if (DEBUG) {
     Serial.begin(9600);
     delay(200);
-    Serial.println(F("Schakelbox V7.0 - Power Flow Model"));
+    Serial.println(F("Schakelbox V7.1 - Power Flow Model"));
     Serial.println(F("==================================="));
   }
 

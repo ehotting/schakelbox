@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Schakelbox Simulator V7 - Power Flow + Live Pinout</title>
+<title>Schakelbox Simulator V7.1 - Power Flow + Live Pinout</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
@@ -136,7 +136,7 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
 </head>
 <body>
 
-<h1>Schakelbox V7 — Simulator + Live Arduino Pinout</h1>
+<h1>Schakelbox V7.1 — Simulator + Live Arduino Pinout</h1>
 
 <div class="split">
 
@@ -238,10 +238,10 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
       <div class="pin-h"><span class="pn">IOREF</span><div class="pw wn"></div></div>
       <div class="pin-h"><span class="pn">RST</span><div class="pw wn"></div></div>
       <div class="pin-h"><span class="pn">3.3V</span><div class="pw wp"></div></div>
-      <div class="pin-h"><span class="pt tp" style="margin-right:2px;">12V voed. GND ←</span><span class="pn">5V</span><div class="pw wp"></div></div>
-      <div class="pin-h"><span class="pt tg" style="margin-right:2px;">gemeensch. GND ←</span><span class="pn">GND</span><div class="pw wg"></div></div>
+      <div class="pin-h"><span class="pn">5V</span><div class="pw wp"></div></div>
+      <div class="pin-h"><span class="pt tg" style="margin-right:2px;">12V voed. GND ←</span><span class="pn">GND</span><div class="pw wg"></div></div>
       <div class="pin-h"><span class="pn">GND</span><div class="pw wg"></div></div>
-      <div class="pin-h"><span class="pn">VIN</span><div class="pw wn"></div></div>
+      <div class="pin-h"><span class="pt tp" style="margin-right:2px;">12V voed. + ←</span><span class="pn">VIN</span><div class="pw wp"></div></div>
       <div style="height:3px;"></div>
       <div class="pin-h"><span class="pt ta" style="margin-right:2px;">VSENSE ←</span><span class="pn">A0</span><div class="pw wa"></div></div>
       <!-- Storing 1: A1=fout, A2-A7=goed -->
@@ -880,7 +880,7 @@ spanning=calcSpan();prevSpanning=[...spanning];
 renderSenseGrid();renderPairGrid();
 runLoop();
 setInterval(()=>{ckRK(Date.now());updateUI(Date.now());},200);
-sL('Schakelbox V7 — Simulator + Live Arduino Pinout');
+sL('Schakelbox V7.1 — Simulator + Live Arduino Pinout');
 sL('Fouten: 1=SCHAKELFOUT 2=UITVAL 3=RAILKOPPELING 4=VOLGORDE 5=FOUTE PIN');
 sL('='.repeat(50));
 </script>
