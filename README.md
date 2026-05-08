@@ -7,8 +7,8 @@ Trainingssimulator voor het schakelen in een 50/10kV onderstation met 3 trafovel
 
 ## Bestanden
 
-- `schakelbox_v7.ino` - Arduino sketch
-- `schakelbox_simulator_v7.html` - browser-simulator met live Arduino pinout
+- `schakelbox_v8.ino` - Arduino sketch
+- `schakelbox_simulator_v8.html` - browser-simulator met live Arduino pinout
 
 ## Hoe het werkt
 
@@ -35,7 +35,7 @@ Bij beide moet de trafo eerst geaard worden, anders volgt een schakelfout.
 - 18 toggle-schakelaars (railscheiders + vermogensschakelaars)
 - 2 koppelveld-schakelaars
 - 10x 12V signaal-LED via N-channel MOSFET
-- 2 buzzers (kort + permanent)
+- 1 passieve piezo-buzzer (toon-patronen per foutsoort)
 - 2 storingsknoppen
 - 9 spanningspunten + 3 aardepunten (bananenstekkers)
 - 7 sense-aansluitingen + 1 pair-aansluiting voor de storingspuzzels
@@ -43,8 +43,8 @@ Bij beide moet de trafo eerst geaard worden, anders volgt een schakelfout.
 ## Upload naar Arduino
 
 ```
-arduino-cli compile --fqbn arduino:avr:mega schakelbox_v7.ino
-arduino-cli upload -p /dev/cu.usbmodem101 --fqbn arduino:avr:mega schakelbox_v7.ino
+arduino-cli compile --fqbn arduino:avr:mega schakelbox_v8.ino
+arduino-cli upload -p /dev/cu.usbmodem101 --fqbn arduino:avr:mega schakelbox_v8.ino
 ```
 
 ## Pin layout
@@ -55,10 +55,9 @@ arduino-cli upload -p /dev/cu.usbmodem101 --fqbn arduino:avr:mega schakelbox_v7.
 |-----|---------|
 | D2 | Rail C LED |
 | D3 | Rail D LED |
-| D4 | Rail 1 + Duinpad LED |
-| D5 | Rail 2 + Fre de Rik LED |
-| D6 | Buzzer kort |
-| D7 | Buzzer permanent |
+| D4 | Rail 1 + Duinpadweg LED |
+| D5 | Rail 2 + Frederiklaan LED |
+| D6 | Buzzer (passieve piezo via tone()) |
 | D8-D9 | Storing LED T1 (prim, sec) |
 | D10-D11 | Storing LED T2 (prim, sec) |
 | D12-D13 | Storing LED T3 (prim, sec) |
@@ -106,7 +105,7 @@ De pre-commit hook draait de tests automatisch bij elke commit.
 
 ## Simulator
 
-Open `schakelbox_simulator_v7.html` in een browser. Links de schakelbox, rechts het Arduino pinout. Pins lichten op als je schakelt.
+Open `schakelbox_simulator_v8.html` in een browser. Links de schakelbox, rechts het Arduino pinout. Pins lichten op als je schakelt.
 
 ## Licentie
 

@@ -1,5 +1,5 @@
-// Schakelbox V7.2 - Kernlogica (geëxtraheerd voor testing)
-// Identiek aan de logica in schakelbox_simulator_v7.html en schakelbox_v7.ino
+// Schakelbox V8 - Kernlogica (geëxtraheerd voor testing)
+// Identiek aan de logica in schakelbox_simulator_v8.html en schakelbox_v8.ino
 
 const RAIL_50C = 0, RAIL_50D = 1;
 const TRAFO_PRIM_0 = 2, TRAFO_PRIM_1 = 3, TRAFO_PRIM_2 = 4;
@@ -162,7 +162,7 @@ function checkAardingFout(state, spanning) {
 
 // Debounce: filtert mains-hum / hand-pickup op INPUT_PULLUP lijnen.
 // Een input moet `debounceMs` stabiel zijn voordat de waarde geaccepteerd
-// wordt. Identiek aan de C++ implementatie in schakelbox_v7.ino.
+// wordt. Identiek aan de C++ implementatie in schakelbox_v8.ino.
 function createDebouncer(initialValue, debounceMs = 25) {
   return {
     stable: initialValue,

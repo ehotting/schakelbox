@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Schakelbox Simulator V7.2 - Power Flow + Live Pinout</title>
+<title>Schakelbox Simulator V8 - Power Flow + Live Pinout</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Segoe UI', system-ui, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
@@ -136,7 +136,7 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
 </head>
 <body>
 
-<h1>Schakelbox V7.2 — Simulator + Live Arduino Pinout</h1>
+<h1>Schakelbox V8 — Simulator + Live Arduino Pinout</h1>
 
 <div class="split">
 
@@ -305,14 +305,13 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
         <span style="font-size:0.4em; font-weight:bold; color:#4a4; writing-mode:vertical-lr; text-orientation:mixed; display:flex; align-items:center;">Storings LEDs</span>
       </div>
 
-      <div class="pin-h"><div class="pw wb"></div><span class="pn">D7</span><div class="pd lo" id="pd-7"></div><span class="pt tb" style="margin-left:2px;">→ Buzzer perm.</span></div>
       <div class="pin-h"><div class="pw wb"></div><span class="pn">D6</span><div class="pd lo" id="pd-6"></div><span class="pt tb" style="margin-left:2px;">→ Buzzer kort</span></div>
 
       <!-- Spanning LEDs: D5-D2 -->
       <div style="display:flex; align-items:stretch;">
         <div style="display:flex; flex-direction:column;">
-          <div class="pin-h"><div class="pw wo"></div><span class="pn">D5</span><div class="pd lo" id="pd-5"></div><span class="pt to" style="margin-left:2px;">→ Rail 2 + FdR</span></div>
-          <div class="pin-h"><div class="pw wo"></div><span class="pn">D4</span><div class="pd lo" id="pd-4"></div><span class="pt to" style="margin-left:2px;">→ Rail 1 + Duinpad</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D5</span><div class="pd lo" id="pd-5"></div><span class="pt to" style="margin-left:2px;">→ Rail 2 + Frederiklaan</span></div>
+          <div class="pin-h"><div class="pw wo"></div><span class="pn">D4</span><div class="pd lo" id="pd-4"></div><span class="pt to" style="margin-left:2px;">→ Rail 1 + Duinpadweg</span></div>
           <div class="pin-h"><div class="pw wo"></div><span class="pn">D3</span><div class="pd lo" id="pd-3"></div><span class="pt to" style="margin-left:2px;">→ Rail D</span></div>
           <div class="pin-h"><div class="pw wo"></div><span class="pn">D2</span><div class="pd lo" id="pd-2"></div><span class="pt to" style="margin-left:2px;">→ Rail C</span></div>
         </div>
@@ -420,8 +419,8 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
     c.innerHTML+=`<div class="veld veld-trafo">
       <div class="veld-label">${tNames[v][0]}</div>
       <div class="component-row">
-        <div class="switch-group"><span class="switch-label">RS C</span><div class="toggle" id="tog-rs-${v}-0" onclick="toggleRS(${v},0)"><div class="knob"></div></div></div>
         <div class="switch-group"><span class="switch-label">RS D</span><div class="toggle" id="tog-rs-${v}-1" onclick="toggleRS(${v},1)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="switch-label">RS C</span><div class="toggle" id="tog-rs-${v}-0" onclick="toggleRS(${v},0)"><div class="knob"></div></div></div>
       </div>
       <div class="aard-row"><div class="span-dot dead" id="vdot-${v}-0" title="Spanning boven VS-P" style="cursor:pointer;" onclick="clickSpanPunt(${v},0)"></div></div>
       <div class="vs-row">
@@ -440,8 +439,8 @@ h1 { text-align: center; font-size: 1.05em; padding: 3px; color: #aaa; }
       </div>
       <div class="aard-row"><div class="span-dot dead" id="vdot-${v}-2" title="Spanning onder VS-S" style="cursor:pointer;" onclick="clickSpanPunt(${v},2)"></div></div>
       <div class="component-row">
-        <div class="switch-group"><span class="switch-label">RS 1</span><div class="toggle" id="tog-rs-${v}-2" onclick="toggleRS(${v},2)"><div class="knob"></div></div></div>
         <div class="switch-group"><span class="switch-label">RS 2</span><div class="toggle" id="tog-rs-${v}-3" onclick="toggleRS(${v},3)"><div class="knob"></div></div></div>
+        <div class="switch-group"><span class="switch-label">RS 1</span><div class="toggle" id="tog-rs-${v}-2" onclick="toggleRS(${v},2)"><div class="knob"></div></div></div>
       </div>
       <div class="veld-label-sec">${tNames[v][2]}</div>
     </div>`;
@@ -744,7 +743,7 @@ function updateUI(now){
   // === PINOUT: Output pins (right strip) ===
   sD('pd-2',spanning[RAIL_50C]?'hi-out':'lo');   // Rail C
   sD('pd-3',spanning[RAIL_50D]?'hi-out':'lo');   // Rail D
-  sD('pd-4',spanning[RAIL_10_1]?'hi-out':'lo');  // Rail 1 + Duinpad
+  sD('pd-4',spanning[RAIL_10_1]?'hi-out':'lo');  // Rail 1 + Duinpadweg
   sD('pd-5',spanning[RAIL_10_2]?'hi-out':'lo');  // Rail 2 + FdR
   sD('pd-8',st[0][0]?'hi-out':'lo');  // ST T1p
   sD('pd-9',st[0][1]?'hi-out':'lo');  // ST T1s
@@ -752,19 +751,18 @@ function updateUI(now){
   sD('pd-11',st[1][1]?'hi-out':'lo'); // ST T2s
   sD('pd-12',st[2][0]?'hi-out':'lo'); // ST T3p
   sD('pd-13',st[2][1]?'hi-out':'lo'); // ST T3s
-  // Buzzer pins: D6 = kort (3s bij elke fout), D7 = permanent (zolang fout voortduurt)
-  const shortBuzzer = ba;
+  // Buzzer: 1 pin (D6, passieve piezo via tone()).
+  // Audio in deze simulator is een vereenvoudiging — in de Arduino-sketch
+  // worden distinctieve patronen per foutsoort gespeeld (sad trombone voor
+  // vlamboog, etc.). Hier laten we het visuele LED meelopen met elke fout.
   const heeftAardFout = state._prevAardFout && state._prevAardFout.some(x=>x);
   const heeftKopFout50 = state._kopFout50 && state._kopFout50.some(x=>x);
   const heeftKopFout10 = state._kopFout10 && state._kopFout10.some(x=>x);
-  const permBuzzer = spanning[RAIL_10_1]===false || spanning[RAIL_10_2]===false  // uitval
-    || state.koppelingAlarm.some(v => v[0] || v[1])  // railkoppeling >60s
-    || heeftAardFout  // spanning op geaard punt
-    || heeftKopFout50 || heeftKopFout10;  // RS dicht zonder koppelveld
-  sD('pd-6', shortBuzzer ? 'hi-buz' : 'lo');
-  sD('pd-7', permBuzzer ? 'hi-buz' : 'lo');
-  // Permanente buzzer houdt ook audio aan (type 1 toon)
-  if(permBuzzer) state.buzzerTot[1]=Math.max(state.buzzerTot[1]||0,now+500);
+  const ongoing = spanning[RAIL_10_1]===false || spanning[RAIL_10_2]===false
+    || state.koppelingAlarm.some(v => v[0] || v[1])
+    || heeftAardFout || heeftKopFout50 || heeftKopFout10;
+  sD('pd-6', (ba || ongoing) ? 'hi-buz' : 'lo');
+  if(ongoing) state.buzzerTot[1]=Math.max(state.buzzerTot[1]||0,now+500);
 
   // === PINOUT: Input pins (bottom strip D26-D47) ===
   // Per trafo 6 pins: RS-C, RS-D, VS-p, VS-s, RS-1, RS-2
@@ -880,7 +878,7 @@ spanning=calcSpan();prevSpanning=[...spanning];
 renderSenseGrid();renderPairGrid();
 runLoop();
 setInterval(()=>{ckRK(Date.now());updateUI(Date.now());},200);
-sL('Schakelbox V7.2 — Simulator + Live Arduino Pinout');
+sL('Schakelbox V8 — Simulator + Live Arduino Pinout');
 sL('Fouten: 1=SCHAKELFOUT 2=UITVAL 3=RAILKOPPELING 4=VOLGORDE 5=FOUTE PIN');
 sL('='.repeat(50));
 </script>

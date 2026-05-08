@@ -1,5 +1,5 @@
-/* Schakelbox V7.2 - Power Flow Model
- * Laatste wijziging: 28/04/2026
+/* Schakelbox V8 - Power Flow Model
+ * Laatste wijziging: 09/05/2026
  *
  * Simuleert stroomvoorziening door een onderstation met 3 trafovelden.
  * Spanning wordt gepropageerd door gesloten schakelaars (bidirectioneel).
@@ -45,10 +45,84 @@
 #define DEBOUNCE_MS      25      // input moet zo lang stabiel zijn voor accept
 #define VOLT_SENSE_ENABLED  false  // A0 voltage-sense check; floating pin → ruis
 #define VOLT_SENSE_SAMPLES  10     // aantal opeenvolgende samples >threshold voor trigger
-#define BUZZER_KORT_DUUR 1200    // korte buzzer standaard
-// Per foutsoort: 1=schakelfout, 2=uitval, 3=railkoppeling, 4=volgorde(kort), 5=foute pin
-const unsigned long BUZZER_DUUR_PER_TYPE[] = { 0, 1200, 1200, 1200, 600, 1200 };
-#define BLINK_INTERVAL   500
+#define BLINK_INTERVAL        500
+#define BLINK_FAST_INTERVAL   200   // LED 'verloren' state — sneller knipperen
+
+// =================================================================
+//  BUZZER PATTERNS
+// =================================================================
+// Eén buzzer (D6, passieve piezo via tone()). Patronen zijn een rij
+// {freq, ms} met sentinel {0,0}. freq=0 binnen patroon = stilte ms lang.
+// Event-patronen krijgen per FoutKind een max duur (maxMsFor) en eventueel
+// een loop-flag (repeatFor). Ongoing-patronen herhalen continu zolang state
+// actief is; bij meerdere ongoing fouten speelt de hoogste prio (geen multiplex).
+
+struct Note { uint16_t freq; uint16_t ms; };
+struct Player {
+  const Note* pattern;
+  uint8_t idx;
+  unsigned long noteStart;
+  bool noteActive;
+};
+
+enum StepStatus { STEP_RUNNING, STEP_NOTE_DONE, STEP_END };
+
+enum FoutKind {
+  F_NONE = 0,
+  F_UITVAL,            // T1: rail spanningsloos — perm
+  F_AARDPUNT_KORT,     // T2: spanning op geaard punt — perm
+  F_KOPPEL_FOUT,       // T3: RS dicht zonder koppelveld — 8s event
+  F_VLAMBOOG,          // T4: RS schakelen onder belasting — 5s event
+  F_VERLOREN,          // T5: storing 1 verloren — perm
+  F_AARDING,           // T6: werken zonder aarding — 5s event
+  F_VOLGORDE,          // T7: VS verkeerde volgorde — 3s event
+  F_RAILKOPPELING      // beide RS dicht >60s — 3 blips, eenmalig
+};
+
+const Note PAT_UITVAL[]          = { {180, 500}, {0, 250}, {180, 500}, {0, 0} };                       // T1
+const Note PAT_AARDPUNT_KORT[]   = { {250, 800}, {0, 0} };                                              // T2
+const Note PAT_KOPPEL_FOUT[]     = { {250, 250}, {0, 50}, {350, 250}, {0, 50}, {0, 0} };                // T3
+// Sad trombone (Price-is-Right losing horn): chromatische daling F4-E4-Eb4-D4,
+// drie korte noten + 4e lang aangehouden = "ta-da-da-daaaa".
+const Note PAT_VLAMBOOG[]        = { {349, 200}, {0, 60}, {330, 200}, {0, 60}, {311, 200}, {0, 60}, {294, 900}, {0, 0} };  // T4
+const Note PAT_VERLOREN[]        = { {400, 200}, {0, 200}, {0, 0} };                                    // T5
+const Note PAT_AARDING[]         = { {200, 150}, {0, 100}, {200, 150}, {0, 100}, {200, 150}, {0, 0} };  // T6
+const Note PAT_VOLGORDE[]        = { {200, 200}, {0, 50}, {400, 200}, {0, 50}, {0, 0} };                // T7 (200/400 alt)
+const Note PAT_RAILKOPPELING[]   = { {400, 100}, {0, 100}, {400, 100}, {0, 100}, {400, 100}, {0, 0} };  // 3 blips 400Hz
+
+const Note* patternFor(FoutKind k) {
+  switch (k) {
+    case F_UITVAL:         return PAT_UITVAL;
+    case F_AARDPUNT_KORT:  return PAT_AARDPUNT_KORT;
+    case F_KOPPEL_FOUT:    return PAT_KOPPEL_FOUT;
+    case F_VLAMBOOG:       return PAT_VLAMBOOG;
+    case F_VERLOREN:       return PAT_VERLOREN;
+    case F_AARDING:        return PAT_AARDING;
+    case F_VOLGORDE:       return PAT_VOLGORDE;
+    case F_RAILKOPPELING:  return PAT_RAILKOPPELING;
+    default:               return nullptr;
+  }
+}
+
+// Hoeveel ms speelt het kort-patroon maximaal? Wordt in updateBuzzer gecapped.
+unsigned long maxMsFor(FoutKind k) {
+  switch (k) {
+    case F_KOPPEL_FOUT:    return 8000;  // T3
+    case F_VLAMBOOG:       return 5000;  // T4
+    case F_AARDING:        return 5000;  // T6
+    case F_VOLGORDE:       return 3000;  // T7
+    case F_RAILKOPPELING:  return 700;   // 3 blips, geen herhaling
+    default:               return 3000;
+  }
+}
+
+// Speelt het patroon door (loop bij sentinel) of stopt het na één doorgang?
+bool repeatFor(FoutKind k) {
+  switch (k) {
+    case F_RAILKOPPELING:  return false;  // exact 3 blips
+    default:               return true;   // loop tot maxMs hit
+  }
+}
 
 // =================================================================
 //  PIN DEFINITIES
@@ -57,10 +131,14 @@ const unsigned long BUZZER_DUUR_PER_TYPE[] = { 0, 1200, 1200, 1200, 600, 1200 };
 // --- OUTPUTS (rechter reep) ---
 #define LED_RAIL_C       2       // Rail C spanning LED
 #define LED_RAIL_D       3       // Rail D spanning LED
-#define LED_RAIL_1       4       // Rail 1 + Duinpad LED (parallel)
-#define LED_RAIL_2       5       // Rail 2 + Fre de Rik LED (parallel)
-#define BUZZER_KORT_PIN  6       // Korte buzzer (3s bij elke fout)
-#define BUZZER_PERM_PIN  7       // Permanente buzzer (zolang fout voortduurt)
+#define LED_RAIL_1       4       // Rail 1 + Duinpadweg LED (parallel)
+#define LED_RAIL_2       5       // Rail 2 + Frederiklaan LED (parallel)
+
+// Aangenomen rail-belasting (Ampere). Detectie blijft binair (stroom ja/nee);
+// constants gebruikt voor documentatie en eventuele uitbreidingen.
+#define LOAD_RAIL_10_1   200     // Duinpadweg
+#define LOAD_RAIL_10_2   500     // Frederiklaan
+#define BUZZER_KORT_PIN  6       // Buzzer (D6, passieve piezo) — alle event- en ongoing-patronen
 #define LED_STOR_T1_P    8       // Storing LED trafo 1, VS-prim
 #define LED_STOR_T1_S    9       // Storing LED trafo 1, VS-sec
 #define LED_STOR_T2_P    10      // Storing LED trafo 2, VS-prim
@@ -162,18 +240,25 @@ bool btnStoring[2];
 bool allSenseGoedOk;
 bool senseFoutAangesloten;
 bool pairVerbonden;
+bool puzzel1Verloren = false;    // foute pin A1 aangesloten tijdens storing 1
 
 // Aarding
 bool geaard[3][3];               // [veld][boven, midden, onder]
 bool prevAardFout[3][3];         // edge detection
 
-// Buzzers
-unsigned long buzzerKortTot = 0;
-bool buzzerPermAan = false;
+// Buzzer state machines (Player struct gedefinieerd in BUZZER PATTERNS sectie)
+Player kortPlayer = { nullptr, 0, 0, false };
+Player permPlayer = { nullptr, 0, 0, false };
+unsigned long kortStart = 0;
+unsigned long kortMaxMs = 3000;
+bool kortRepeat = true;
+FoutKind permCurrentKind = F_NONE;
 
 // Blink
 bool blinkState = false;
 unsigned long lastBlink = 0;
+bool fastBlinkState = false;
+unsigned long lastFastBlink = 0;
 
 // Edge detection (was static in functies, nu global voor consistentie)
 bool prevVoltHoog = false;
@@ -271,13 +356,22 @@ bool aardPuntSpanning(int v, int punt) {
 //  FOUTDETECTIE
 // =================================================================
 
-void meldFout(uint8_t soort, const char* veldNaam, const char* bericht) {
+void meldFout(FoutKind kind, const char* veldNaam, const char* bericht) {
   unsigned long now = millis();
-  buzzerKortTot = now + ((soort >= 1 && soort <= 5) ? BUZZER_DUUR_PER_TYPE[soort] : BUZZER_KORT_DUUR);
+  // F_NONE = alleen loggen (state-flags zorgen voor eventueel ongoing alarm)
+  if (kind != F_NONE) {
+    kortPlayer.pattern = patternFor(kind);
+    kortPlayer.idx = 0;
+    kortPlayer.noteActive = false;
+    kortStart = now;
+    kortMaxMs = maxMsFor(kind);
+    kortRepeat = repeatFor(kind);
+    permPlayer.noteActive = false;
+  }
 
   if (!DEBUG) return;
-  Serial.print(F("!!! FOUT SOORT "));
-  Serial.print(soort);
+  Serial.print(F("!!! FOUT "));
+  Serial.print((int)kind);
   Serial.print(F(" | "));
   Serial.print(now);
   Serial.print(F("ms | "));
@@ -304,20 +398,26 @@ void checkSchakelfout(int veld, int rsIdx) {
   bool spanB = spanning[nodeB];
   memcpy(spanning, backup, sizeof(spanning));
 
-  if (spanA == spanB) return;
-
-  bool vsDicht = (rsIdx <= RS_D_IDX) ? vs[veld][0] : vs[veld][1];
-  if (vsDicht) {
-    meldFout(1, VELD[veld].naam, "SCHAKELFOUT: RS geschakeld onder belasting!");
+  // Vlamboog alleen als de RS een potentiaalverschil overbrugt: in de sim
+  // met deze RS open is één kant dood en de andere onder spanning. Geen
+  // verschil → bypass aanwezig (bv. via koppelveld of parallelle trafo) →
+  // schakelen is veilig.
+  if (spanA != spanB) {
+    bool vsDicht = (rsIdx <= RS_D_IDX) ? vs[veld][0] : vs[veld][1];
+    if (vsDicht) {
+      meldFout(F_VLAMBOOG, VELD[veld].naam, "VLAMBOOG: RS geschakeld onder belasting!");
+    }
   }
 }
 
 // Soort 2: UITVAL
 void checkUitval() {
+  // F_NONE: alleen log; ongoing T1 wordt opgepikt via collectOngoing zolang
+  // de rail spanningloos is.
   if (prevSpanning[RAIL_10_1] && !spanning[RAIL_10_1])
-    meldFout(2, "SYSTEEM", "UITVAL: 10kV Rail 1 geen spanning!");
+    meldFout(F_NONE, "SYSTEEM", "UITVAL: 10kV Rail 1 geen spanning!");
   if (prevSpanning[RAIL_10_2] && !spanning[RAIL_10_2])
-    meldFout(2, "SYSTEEM", "UITVAL: 10kV Rail 2 geen spanning!");
+    meldFout(F_NONE, "SYSTEEM", "UITVAL: 10kV Rail 2 geen spanning!");
 }
 
 // Soort 1/3: RAILKOPPELING
@@ -331,7 +431,7 @@ void checkRailkoppeling(unsigned long now) {
     // 50kV: zonder koppelveld = direct fout 1
     if (beide50 && !koppelPrim) {
       if (!kopFout_50[v]) {
-        meldFout(1, VELD[v].naam, "RS-C+D dicht ZONDER koppelveld prim! Vlamboog!");
+        meldFout(F_KOPPEL_FOUT, VELD[v].naam, "KOPPELVELD: RS-C+D dicht zonder koppelveld prim!");  // T3
         kopFout_50[v] = true;
       }
     } else { kopFout_50[v] = false; }
@@ -339,7 +439,7 @@ void checkRailkoppeling(unsigned long now) {
     // 10kV: zonder koppelveld = direct fout 1
     if (beide10 && !koppelSec) {
       if (!kopFout_10[v]) {
-        meldFout(1, VELD[v].naam, "RS-1+2 dicht ZONDER koppelveld sec! Vlamboog!");
+        meldFout(F_KOPPEL_FOUT, VELD[v].naam, "KOPPELVELD: RS-1+2 dicht zonder koppelveld sec!");  // T3
         kopFout_10[v] = true;
       }
     } else { kopFout_10[v] = false; }
@@ -348,7 +448,7 @@ void checkRailkoppeling(unsigned long now) {
     if (beide50 && koppelPrim) {
       if (kopStart_50[v] == 0) { kopStart_50[v] = now; kopAlarm_50[v] = false; }
       if (!kopAlarm_50[v] && ((long)(now - kopStart_50[v]) >= (long)KOPPELING_MAX_MS)) {
-        meldFout(3, VELD[v].naam, "RAILKOPPELING: RS-C + RS-D >60s!");
+        meldFout(F_RAILKOPPELING, VELD[v].naam, "RAILKOPPELING: RS-C + RS-D >60s!");
         kopAlarm_50[v] = true;
       }
     } else { kopStart_50[v] = 0; kopAlarm_50[v] = false; }
@@ -356,7 +456,7 @@ void checkRailkoppeling(unsigned long now) {
     if (beide10 && koppelSec) {
       if (kopStart_10[v] == 0) { kopStart_10[v] = now; kopAlarm_10[v] = false; }
       if (!kopAlarm_10[v] && ((long)(now - kopStart_10[v]) >= (long)KOPPELING_MAX_MS)) {
-        meldFout(3, VELD[v].naam, "RAILKOPPELING: RS-1 + RS-2 >60s!");
+        meldFout(F_RAILKOPPELING, VELD[v].naam, "RAILKOPPELING: RS-1 + RS-2 >60s!");
         kopAlarm_10[v] = true;
       }
     } else { kopStart_10[v] = 0; kopAlarm_10[v] = false; }
@@ -369,7 +469,9 @@ void checkAardingFout() {
     for (int p = 0; p < 3; p++) {
       bool fout = geaard[v][p] && aardPuntSpanning(v, p);
       if (fout && !prevAardFout[v][p]) {
-        meldFout(1, VELD[v].naam, "Spanning op geaard punt! Dodelijke vlamboog!");
+        // F_NONE: ongoing T2 wordt door collectOngoing opgepikt zolang de
+        // kortsluiting bestaat; geen losse event-toon nodig.
+        meldFout(F_NONE, VELD[v].naam, "AARDPUNT: Spanning op geaard punt!");
       }
       prevAardFout[v][p] = fout;
     }
@@ -417,7 +519,7 @@ void leesStoringPuzzel() {
     bool ok = (debouncedRead(SENSE_GOED_PINS[i]) == LOW);
     // Edge: pin wordt aangesloten zonder aarding → fout 1
     if (ok && !prevSenseGoed[i] && btnStoring[0] && !isTrafoGeaard(0)) {
-      meldFout(1, "STORING 1", "Werken zonder aarding! Dodelijk gevaar!");
+      meldFout(F_AARDING, "STORING 1", "Werken zonder aarding! Dodelijk gevaar!");
     }
     prevSenseGoed[i] = ok;
     if (!ok) allSenseGoedOk = false;
@@ -427,15 +529,20 @@ void leesStoringPuzzel() {
   senseFoutAangesloten = (debouncedRead(SENSE_FOUT_PIN) == LOW);
   if (senseFoutAangesloten && !wasFoutAangesloten) {
     if (btnStoring[0] && !isTrafoGeaard(0))
-      meldFout(1, "STORING 1", "Werken zonder aarding! Dodelijk gevaar!");
-    meldFout(5, "STORING 1", "Foute pin A1 aangesloten!");
+      meldFout(F_AARDING, "STORING 1", "Werken zonder aarding! Dodelijk gevaar!");
+    // F_NONE: state-flag puzzel1Verloren triggert ongoing T5 (verloren-pulse)
+    // direct, dus geen losse event-toon.
+    meldFout(F_NONE, "STORING 1", "Foute pin A1 aangesloten!");
+    if (btnStoring[0]) puzzel1Verloren = true;
   }
+  // Reset 'verloren' bij toggle storing-1 uit
+  if (!btnStoring[0]) puzzel1Verloren = false;
 
   // Storing 2: A8→A9 pair
   bool wasPairVerbonden = pairVerbonden;
   pairVerbonden = (debouncedRead(PAIR_RX_PIN) == LOW);
   if (pairVerbonden && !wasPairVerbonden && btnStoring[1] && !isTrafoGeaard(1)) {
-    meldFout(1, "STORING 2", "Werken zonder aarding! Dodelijk gevaar!");
+    meldFout(F_AARDING, "STORING 2", "Werken zonder aarding! Dodelijk gevaar!");
   }
 }
 
@@ -466,12 +573,19 @@ void updateStoringLeds(unsigned long now) {
     blinkState = !blinkState;
     lastBlink = now;
   }
+  if (now - lastFastBlink >= BLINK_FAST_INTERVAL) {
+    fastBlinkState = !fastBlinkState;
+    lastFastBlink = now;
+  }
 
   for (int v = 0; v < 3; v++) {
     bool ledP = false, ledS = false;
 
     if (btnStoring[0] && v == STORING1_TRAFO) {
-      bool led = allSenseGoedOk ? true : blinkState;
+      bool led;
+      if (puzzel1Verloren)      led = fastBlinkState;
+      else if (allSenseGoedOk)  led = true;
+      else                      led = blinkState;
       ledP = ledS = led;
     }
     if (btnStoring[1] && v == STORING2_TRAFO) {
@@ -483,22 +597,106 @@ void updateStoringLeds(unsigned long now) {
   }
 }
 
-// Check of er een permanente foutconditie actief is
-bool heeftPermanenteFout() {
-  if (!spanning[RAIL_10_1] || !spanning[RAIL_10_2]) return true;
+// Verzamel actieve ongoing-fouten in volgorde van prioriteit (hoogste eerst).
+// Alleen T1 (uitval), T2 (aardpunt-kortsluiting) en T5 (verloren) zijn ongoing.
+// T3 (koppelveld) en T4 (vlamboog) zijn event-only (kort-pattern).
+uint8_t collectOngoing(FoutKind* out, uint8_t maxN) {
+  uint8_t n = 0;
+  bool anyAardpunt = false;
   for (int v = 0; v < 3; v++) {
-    if (kopAlarm_50[v] || kopAlarm_10[v]) return true;
-    if (kopFout_50[v] || kopFout_10[v]) return true;
-    for (int p = 0; p < 3; p++)
-      if (geaard[v][p] && aardPuntSpanning(v, p)) return true;
+    for (int p = 0; p < 3; p++) {
+      if (geaard[v][p] && aardPuntSpanning(v, p)) anyAardpunt = true;
+    }
   }
-  return false;
+  if (anyAardpunt && n < maxN) out[n++] = F_AARDPUNT_KORT;        // T2 (hoogste prio)
+  if ((!spanning[RAIL_10_1] || !spanning[RAIL_10_2]) && n < maxN) out[n++] = F_UITVAL; // T1
+  if (puzzel1Verloren && n < maxN) out[n++] = F_VERLOREN;         // T5 (laagste prio)
+  return n;
 }
 
-void updateBuzzers(unsigned long now) {
-  digitalWrite(BUZZER_KORT_PIN, ((long)(buzzerKortTot - now) > 0) ? HIGH : LOW);
-  buzzerPermAan = heeftPermanenteFout();
-  digitalWrite(BUZZER_PERM_PIN, buzzerPermAan ? HIGH : LOW);
+// stepPlayer returnt STEP_RUNNING (noot speelt nog), STEP_NOTE_DONE (huidige
+// noot net afgelopen — caller bepaalt of we doorgaan of rotateren) of STEP_END
+// (pattern op sentinel).
+StepStatus stepPlayer(Player& p, unsigned long now) {
+  if (p.pattern == nullptr) return STEP_END;
+  Note n = p.pattern[p.idx];
+  if (n.freq == 0 && n.ms == 0) return STEP_END;
+  if (!p.noteActive) {
+    if (n.freq > 0) tone(BUZZER_KORT_PIN, n.freq);
+    else            noTone(BUZZER_KORT_PIN);
+    p.noteStart = now;
+    p.noteActive = true;
+    return STEP_RUNNING;
+  }
+  if (now - p.noteStart >= n.ms) return STEP_NOTE_DONE;
+  return STEP_RUNNING;
+}
+
+void updateBuzzer(unsigned long now) {
+  // 1. Event-patroon (kort) heeft prioriteit. Stopt bij timeout of bij sentinel
+  //    (afhankelijk van kortRepeat: loop tot timeout, of speel exact 1×).
+  if (kortPlayer.pattern != nullptr) {
+    bool timeout = (now - kortStart >= kortMaxMs);
+    if (timeout) {
+      kortPlayer.pattern = nullptr;
+      kortPlayer.noteActive = false;
+      noTone(BUZZER_KORT_PIN);
+      permPlayer.noteActive = false;
+    } else {
+      StepStatus s = stepPlayer(kortPlayer, now);
+      if (s == STEP_NOTE_DONE) {
+        kortPlayer.idx++;
+        kortPlayer.noteActive = false;
+        return;
+      }
+      if (s == STEP_END) {
+        if (kortRepeat) {
+          // Loop: opnieuw vanaf begin
+          kortPlayer.idx = 0;
+          kortPlayer.noteActive = false;
+          return;
+        }
+        // Eénmalig: stoppen
+        kortPlayer.pattern = nullptr;
+        noTone(BUZZER_KORT_PIN);
+        permPlayer.noteActive = false;
+        // val door naar perm
+      } else {
+        return; // STEP_RUNNING
+      }
+    }
+  }
+
+  // 2. Ongoing-patroon op perm: hoogste-prio fout speelt zijn patroon in lus
+  //    tot de fout opgelost is. Lager-prio fouten zijn dan niet hoorbaar.
+  FoutKind ongoing[6];
+  uint8_t nOngoing = collectOngoing(ongoing, 6);
+  if (nOngoing == 0) {
+    if (permPlayer.pattern != nullptr) {
+      permPlayer.pattern = nullptr;
+      noTone(BUZZER_KORT_PIN);
+    }
+    permCurrentKind = F_NONE;
+    return;
+  }
+
+  FoutKind topPrio = ongoing[0];
+  if (permPlayer.pattern == nullptr || permCurrentKind != topPrio) {
+    permCurrentKind = topPrio;
+    permPlayer.pattern = patternFor(topPrio);
+    permPlayer.idx = 0;
+    permPlayer.noteActive = false;
+  }
+
+  StepStatus s = stepPlayer(permPlayer, now);
+  if (s == STEP_NOTE_DONE) {
+    permPlayer.idx++;
+    permPlayer.noteActive = false;
+  } else if (s == STEP_END) {
+    permPlayer.idx = 0;
+    permPlayer.noteActive = false;
+    noTone(BUZZER_KORT_PIN);
+  }
 }
 
 // =================================================================
@@ -562,8 +760,19 @@ void printStatus(unsigned long now) {
   Serial.print(F("Storing 1: btn="));
   Serial.print(btnStoring[0] ? F("AAN") : F("UIT"));
   if (btnStoring[0]) {
-    Serial.print(allSenseGoedOk ? F(" (opgelost)") : F(" (NIET opgelost)"));
+    if (puzzel1Verloren) Serial.print(F(" VERLOREN"));
+    else Serial.print(allSenseGoedOk ? F(" (opgelost)") : F(" (NIET opgelost)"));
     if (senseFoutAangesloten) Serial.print(F(" FOUT-PIN!"));
+    // Per-pin diagnose: welke A2-A7 zijn nog niet doorverbonden?
+    if (!allSenseGoedOk) {
+      Serial.print(F(" pending="));
+      const char names[NUM_SENSE_GOED][3] = {"A2","A3","A4","A5","A6","A7"};
+      for (uint8_t i = 0; i < NUM_SENSE_GOED; i++) {
+        if (debouncedRead(SENSE_GOED_PINS[i]) != LOW) {
+          Serial.print(names[i]); Serial.print(' ');
+        }
+      }
+    }
   }
   Serial.print(F(" | Storing 2: btn="));
   Serial.print(btnStoring[1] ? F("AAN") : F("UIT"));
@@ -572,12 +781,16 @@ void printStatus(unsigned long now) {
   }
   Serial.println();
 
-  // Buzzers
-  bool kortAan = ((long)(buzzerKortTot - now) > 0);
-  Serial.print(F("Buzzer kort="));
-  Serial.print(kortAan ? F("AAN") : F("UIT"));
-  Serial.print(F(" perm="));
-  Serial.println(buzzerPermAan ? F("AAN") : F("UIT"));
+  // Buzzer
+  Serial.print(F("Buzzer: "));
+  if (kortPlayer.pattern != nullptr) {
+    Serial.println(F("KORT (event)"));
+  } else if (permPlayer.pattern != nullptr) {
+    Serial.print(F("PERM kind="));
+    Serial.println((int)permCurrentKind);
+  } else {
+    Serial.println(F("stil"));
+  }
 
   Serial.println(F("===================================================="));
 }
@@ -590,14 +803,14 @@ void setup() {
   if (DEBUG) {
     Serial.begin(9600);
     delay(200);
-    Serial.println(F("Schakelbox V7.2 - Power Flow Model"));
+    Serial.println(F("Schakelbox V8 - Power Flow Model"));
     Serial.println(F("==================================="));
   }
 
   // Output LEDs (rechter reep)
   const uint8_t outPins[] = {
     LED_RAIL_C, LED_RAIL_D, LED_RAIL_1, LED_RAIL_2,
-    BUZZER_KORT_PIN, BUZZER_PERM_PIN,
+    BUZZER_KORT_PIN,
     LED_STOR_T1_P, LED_STOR_T1_S,
     LED_STOR_T2_P, LED_STOR_T2_S,
     LED_STOR_T3_P, LED_STOR_T3_S
@@ -606,6 +819,11 @@ void setup() {
     pinMode(p, OUTPUT);
     digitalWrite(p, LOW);
   }
+
+  // D7 was permanente buzzer — niet meer gebruikt; expliciet LOW houden
+  // zodat de bedrading niet random klikt door een floating MOSFET-gate.
+  pinMode(7, OUTPUT);
+  digitalWrite(7, LOW);
 
   // Koppelvelden (rechter reep)
   pinMode(KOPPEL_PRIM_PIN, INPUT_PULLUP);
@@ -642,8 +860,11 @@ void setup() {
   digitalWrite(PAIR_TX_PIN, LOW);
   pinMode(PAIR_RX_PIN, INPUT_PULLUP);
 
-  // VSENSE
-  pinMode(VOLT_SENSE_PIN, INPUT);
+  // A0 = common-GND voor storing-1 puzzel (banaanstekker label "A0").
+  // VOLT_SENSE feature is uitgezet; pin hergebruikt als OUTPUT LOW,
+  // analoog aan A8 voor storing-2 (PAIR_TX_PIN).
+  pinMode(VOLT_SENSE_PIN, OUTPUT);
+  digitalWrite(VOLT_SENSE_PIN, LOW);
 
   // Debounce state initialiseren op de actuele idle-waarden
   // (anders detecteert debouncedRead alle pins als "veranderend" bij boot)
@@ -660,6 +881,12 @@ void setup() {
     debounceInit(VELD[v].rs1);    debounceInit(VELD[v].rs2);
     for (int p = 0; p < 3; p++) debounceInit(SPAN_PUNT_PINS[v][p]);
   }
+
+  // T8 boot tone: drie tonen oplopend (laag-mid-hoog) — synchroon, kort.
+  tone(BUZZER_KORT_PIN, 200); delay(200);
+  tone(BUZZER_KORT_PIN, 300); delay(200);
+  tone(BUZZER_KORT_PIN, 400); delay(300);
+  noTone(BUZZER_KORT_PIN);
 
   // Initieel lezen
   leesSchakelaars();
@@ -703,7 +930,7 @@ void loop() {
     }
     bool voltHoog = (voltHoogCount >= VOLT_SENSE_SAMPLES);
     if (!prevVoltHoog && voltHoog)
-      meldFout(1, "SYSTEEM", "VOLT_SENSE: spanning op ground!");
+      meldFout(F_NONE, "SYSTEEM", "VOLT_SENSE: spanning op ground!");
     prevVoltHoog = voltHoog;
   }
 
@@ -736,9 +963,9 @@ void loop() {
   // --- 7. Verkeerde volgorde (soort 4) ---
   for (int v = 0; v < 3; v++) {
     if (prevVs[v][0] && !vs[v][0] && vs[v][1])
-      meldFout(4, VELD[v].naam, "Verkeerde volgorde: VS-prim UIT terwijl VS-sec IN.");
+      meldFout(F_VOLGORDE, VELD[v].naam, "Verkeerde volgorde: VS-prim UIT terwijl VS-sec IN.");
     if (!prevVs[v][1] && vs[v][1] && !vs[v][0])
-      meldFout(4, VELD[v].naam, "Verkeerde volgorde: VS-sec IN terwijl VS-prim UIT.");
+      meldFout(F_VOLGORDE, VELD[v].naam, "Verkeerde volgorde: VS-sec IN terwijl VS-prim UIT.");
   }
 
   // --- 8. Aarding fout (soort 1) ---
@@ -747,7 +974,7 @@ void loop() {
   // --- 9. Outputs ---
   updateRailLeds();
   updateStoringLeds(now);
-  updateBuzzers(now);
+  updateBuzzer(now);
 
   // --- 10. Debug ---
   printStatus(now);
