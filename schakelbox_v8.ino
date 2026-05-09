@@ -555,6 +555,115 @@ void leesAarding() {
 }
 
 // =================================================================
+//  EASTER EGG
+// =================================================================
+// Trigger: beide koppelvelden 3× gelijktijdig (binnen 200 ms) toggleren
+// binnen 5 seconden. Per ongeluk vrijwel niet te raken in normaal gebruik.
+// Effect: 4 snelle audio-sweeps + Cylon-style LED chase, daarna alles weer
+// normaal.
+
+#define EE_SYNC_WINDOW_MS  200
+#define EE_RESET_MS        5000
+#define EE_COOLDOWN_MS     10000
+#define EGG_SWEEP_MS       250
+#define EGG_NUM_SWEEPS     4
+#define EGG_FREQ_LO        200
+#define EGG_FREQ_HI        2000
+
+bool prevKoppelPrim = false;
+bool prevKoppelSec  = false;
+unsigned long lastPrimEdgeMs = 0;
+unsigned long lastSecEdgeMs  = 0;
+bool eeArmedPrim = false;
+bool eeArmedSec  = false;
+uint8_t eeSyncCount = 0;
+unsigned long eeFirstSyncMs = 0;
+unsigned long eeLastTriggerMs = 0;
+
+bool eggActive = false;
+unsigned long eggStart = 0;
+
+const uint8_t EGG_LEDS[] = {
+  LED_RAIL_C, LED_RAIL_D,
+  LED_STOR_T1_P, LED_STOR_T1_S,
+  LED_STOR_T2_P, LED_STOR_T2_S,
+  LED_STOR_T3_P, LED_STOR_T3_S,
+  LED_RAIL_1, LED_RAIL_2
+};
+const uint8_t EGG_NUM_LEDS = sizeof(EGG_LEDS);
+
+void checkEasterEgg(unsigned long now) {
+  bool primEdge = (koppelPrim != prevKoppelPrim);
+  bool secEdge  = (koppelSec  != prevKoppelSec);
+  prevKoppelPrim = koppelPrim;
+  prevKoppelSec  = koppelSec;
+
+  if (primEdge) { lastPrimEdgeMs = now; eeArmedPrim = true; }
+  if (secEdge)  { lastSecEdgeMs  = now; eeArmedSec  = true; }
+
+  // Sync-toggle = beide koppelvelden binnen window edged sinds laatste reset.
+  if (eeArmedPrim && eeArmedSec) {
+    unsigned long delta = (lastPrimEdgeMs > lastSecEdgeMs)
+                            ? (lastPrimEdgeMs - lastSecEdgeMs)
+                            : (lastSecEdgeMs - lastPrimEdgeMs);
+    if (delta <= EE_SYNC_WINDOW_MS) {
+      if (eeSyncCount > 0 && (now - eeFirstSyncMs) > EE_RESET_MS) {
+        eeSyncCount = 0;
+      }
+      if (eeSyncCount == 0) eeFirstSyncMs = now;
+      eeSyncCount++;
+      eeArmedPrim = false;
+      eeArmedSec  = false;
+      if (eeSyncCount >= 3 && (now - eeLastTriggerMs) > EE_COOLDOWN_MS) {
+        eggActive = true;
+        eggStart = now;
+        eeLastTriggerMs = now;
+        eeSyncCount = 0;
+        if (DEBUG) Serial.println(F("*** EASTER EGG ***"));
+      }
+    }
+  }
+
+  // Counter resetten als 5 s verstreken zonder de derde sync-toggle.
+  if (eeSyncCount > 0 && (now - eeFirstSyncMs) > EE_RESET_MS) {
+    eeSyncCount = 0;
+    eeArmedPrim = false;
+    eeArmedSec  = false;
+  }
+}
+
+// Speelt af, returnt true zolang de egg loopt (caller skipt dan normale outputs).
+bool playEgg(unsigned long now) {
+  if (!eggActive) return false;
+  unsigned long elapsed = now - eggStart;
+  unsigned long total = (unsigned long)EGG_SWEEP_MS * EGG_NUM_SWEEPS;
+  if (elapsed >= total) {
+    eggActive = false;
+    noTone(BUZZER_KORT_PIN);
+    for (uint8_t i = 0; i < EGG_NUM_LEDS; i++) digitalWrite(EGG_LEDS[i], LOW);
+    return false;
+  }
+
+  uint8_t sweepIdx = elapsed / EGG_SWEEP_MS;
+  unsigned long sweepElapsed = elapsed - (unsigned long)sweepIdx * EGG_SWEEP_MS;
+  // 0..1000 schaal om floats te vermijden
+  unsigned long t1000 = sweepElapsed * 1000UL / EGG_SWEEP_MS;
+
+  // Frequentie sweep low → high
+  uint16_t freq = EGG_FREQ_LO + (uint16_t)(((unsigned long)(EGG_FREQ_HI - EGG_FREQ_LO) * t1000) / 1000UL);
+  tone(BUZZER_KORT_PIN, freq);
+
+  // LED chase, afwisselend L→R en R→L per sweep
+  uint8_t pos = (uint8_t)(t1000 * EGG_NUM_LEDS / 1000UL);
+  if (pos >= EGG_NUM_LEDS) pos = EGG_NUM_LEDS - 1;
+  uint8_t activeLed = (sweepIdx % 2 == 0) ? pos : (EGG_NUM_LEDS - 1 - pos);
+  for (uint8_t i = 0; i < EGG_NUM_LEDS; i++) {
+    digitalWrite(EGG_LEDS[i], (i == activeLed) ? HIGH : LOW);
+  }
+  return true;
+}
+
+// =================================================================
 //  OUTPUTS
 // =================================================================
 
@@ -971,15 +1080,20 @@ void loop() {
   // --- 8. Aarding fout (soort 1) ---
   checkAardingFout();
 
-  // --- 9. Outputs ---
-  updateRailLeds();
-  updateStoringLeds(now);
-  updateBuzzer(now);
+  // --- 9. Easter egg trigger detectie ---
+  checkEasterEgg(now);
 
-  // --- 10. Debug ---
+  // --- 10. Outputs (egg neemt over zolang 'ie speelt) ---
+  if (!playEgg(now)) {
+    updateRailLeds();
+    updateStoringLeds(now);
+    updateBuzzer(now);
+  }
+
+  // --- 11. Debug ---
   printStatus(now);
 
-  // --- 11. Opslaan vorige toestand ---
+  // --- 12. Opslaan vorige toestand ---
   memcpy(prevRs, rs, sizeof(rs));
   memcpy(prevVs, vs, sizeof(vs));
 
